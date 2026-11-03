@@ -1,0 +1,184 @@
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* =========================================
+     ERANDER — BRAND TOKENS
+  ========================================= */
+
+  --erander-navy: #14213d;
+  --erander-green: #20cc88;
+  --erander-mint: #35d07f;
+  --erander-pale: #e9fbf3;
+
+  /* =========================================
+     SURFACES
+  ========================================= */
+
+  --erander-white: #ffffff;
+  --erander-off-white: #f8fafc;
+  --erander-surface: #f7f8f6;
+  --erander-surface-muted: #eef2ed;
+  --erander-surface-dark: #101e34;
+  --erander-dark: #091426;
+
+  /* =========================================
+     TEXT
+  ========================================= */
+
+  --erander-text: #14213d;
+  --erander-text-muted: #64748b;
+  --erander-text-subtle: #94a3b8;
+  --erander-text-inverse: #ffffff;
+
+  /* =========================================
+     BORDERS
+  ========================================= */
+
+  --erander-border: #e2e8f0;
+  --erander-border-soft: #f1f5f9;
+  --erander-border-strong: #cbd5e1;
+  --erander-border-surface: #dde5dd;
+
+  /* =========================================
+     SEMANTIC COLORS
+  ========================================= */
+
+  --erander-success: #15803d;
+  --erander-success-dark: #166534;
+  --erander-success-soft: #e9fbf3;
+
+  /* =========================================
+     TYPOGRAPHY
+  ========================================= */
+
+  --font-erander: "Manrope", sans-serif;
+
+  /* =========================================
+     LAYOUT
+  ========================================= */
+
+  --container-erander: 1440px;
+
+  /* =========================================
+     SHADOWS
+  ========================================= */
+
+  --shadow-erander-card: 0 12px 32px rgb(20 33 61 / 7%);
+  --shadow-erander-card-hover: 0 18px 42px rgb(20 33 61 / 11%);
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 6rem;
+  }
+		
+		
+		
+		
+		
+		/* Firefox */
+* {
+  scrollbar-width: none;
+}
+
+/* IE / legacy Edge */
+* {
+  -ms-overflow-style: none;
+}
+
+/* Chrome, Safari, Edge (Chromium), Opera */
+*::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* Also cover the document/root in case it's styled separately */
+html,
+body {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  display: none;
+}
+		
+		
+		
+		
+		
+		
+
+  body {
+    margin: 0;
+    background-color: var(--erander-white);
+    color: var(--erander-text);
+    font-family: var(--font-erander);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+
+  button,
+  a {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button:focus-visible,
+  a:focus-visible {
+    outline: 2px solid var(--erander-green);
+    outline-offset: 4px;
+  }
+
+  ::selection {
+    background: var(--erander-pale);
+    color: var(--erander-navy);
+  }
+}
+
+@layer components {
+  .erander-container {
+    width: 100%;
+    max-width: var(--container-erander);
+    margin-inline: auto;
+  }
+
+  .erander-card {
+    border: 1px solid var(--erander-border);
+    border-radius: 1rem;
+    background: var(--erander-white);
+    box-shadow: var(--shadow-erander-card);
+    transition:
+      box-shadow 200ms ease,
+      border-color 200ms ease,
+      transform 200ms ease;
+  }
+
+  .erander-card:hover {
+    box-shadow: var(--shadow-erander-card-hover);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
