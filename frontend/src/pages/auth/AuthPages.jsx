@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
 import { apiRequest } from "@/services/api";
 import {
 	ArrowLeft,
@@ -398,6 +399,7 @@ LOGIN PAGE
 ---------------------------------------------- */
 
 export function LoginPage() {
+	const { signIn } = useAuth();
 	const [form, setForm] = useState({
 		email: "",
 		password: "",
@@ -418,38 +420,30 @@ export function LoginPage() {
 	}
 
 	async function handleSubmit(event) {
-  event.preventDefault();
-  setError("");
+    event.preventDefault();
+    setError("");
+    if (loading) return;
+    setLoading(true);
 
-  if (loading) return;
-
-  setLoading(true);
-
-  try {
-    const result = await apiRequest("/auth/login", {
-      method: "POST",
-      body: JSON.stringify({
+    try {
+      await signIn({
         email: form.email.trim(),
         password: form.password,
         remember: form.remember,
-      }),
-    });
+      });
 
-    // Tokens are now stored in HttpOnly cookies by the backend.
-    // Do not store access or refresh tokens in localStorage.
-    toast.success(result.message || "Welcome back to ERANDER!");
-
-    navigate("/dashboard", { replace: true });
-  } catch (error) {
-    const message =
-      error.message || "Unable to sign in. Please try again.";
-
-    setError(message);
-    toast.error(message);
-  } finally {
-    setLoading(false);
+      toast.success("Welcome back to ERANDER!");
+      navigate("/dashboard", { replace: true });
+    } catch (err) {
+      const message = err.message || "Unable to sign in. Please try again.";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setLoading(false);
+    }
   }
-}
+
+
 
 	return (
 		<AuthLayout variant="login">
@@ -580,39 +574,42 @@ export function RegisterPage() {
 	}
 
 	async function handleSubmit(event) {
-		event.preventDefault();
+  event.preventDefault();
 
-		if (!form.acceptTerms) {
-			toast.error("Please agree to the Terms and Privacy Policy to continue.");
-			return;
-		}
+  if (!form.acceptTerms) {
+    toast.error("Please agree to the Terms and Privacy Policy to continue.");
+    return;
+  }
 
-		if (loading) return;
+  if (loading) return;
 
-		setLoading(true);
+  setLoading(true);
 
-		try {
-			const result = await apiRequest("/auth/register", {
-				method: "POST",
-				body: JSON.stringify({
-					first_name: form.firstName.trim(),
-					last_name: form.lastName.trim(),
-					email: form.email.trim(),
-					phone: form.phone.trim(),
-					password: form.password,
-					role: form.role,
-				}),
-			});
+  try {
+    const result = await apiRequest("/auth/register", {
+      method: "POST",
+      body: {
+        first_name: form.firstName.trim(),
+        last_name: form.lastName.trim(),
+        email: form.email.trim(),
+        phone: form.phone.trim(),
+        password: form.password,
+        role: form.role,
+      },
+    });
 
-			toast.success(
-				result.message || "Registration successful. Please check your email.",
-			);
-		} catch (error) {
-			toast.error(error.message || "Registration failed. Please try again.");
-		} finally {
-			setLoading(false);
-		}
-	}
+    toast.success(
+      result.message || "Registration successful. Please check your email.",
+    );
+  } catch (error) {
+    toast.error(error.message || "Registration failed. Please try again.");
+  } finally {
+    setLoading(false);
+  }
+}
+
+
+
 
 	return (
 		<AuthLayout variant="register">

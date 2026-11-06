@@ -17,6 +17,7 @@ import { getOffersForErrand } from "@/services/offers/offersApi";
 import {
   getErrandFundingSummary,
   getFundReleaseRequest,
+  initializePayment,
 } from "@/services/payments/paymentsApi";
 
 import ProgressTracker from "../../shared/ProgressTracker";
@@ -53,6 +54,8 @@ import {
   unwrapReleaseResponse,
   formatCurrency,
 } from "../../shared/ErrandView";
+
+import FundErrandModal from "../FundErrandModal";
 
 const ROLE = "customer";
 
@@ -147,6 +150,7 @@ export default function ErandDetails({
   const [error, setError] = useState("");
 
   const [tab, setTab] = useState("overview");
+  const [fundOpen, setFundOpen] = useState(false);
 
   const loadErrand = useCallback(
     async ({ silent = false } = {}) => {
@@ -370,15 +374,21 @@ export default function ErandDetails({
   }, [onRaiseTicket, errandId, errand, acceptedOffer]);
 
   const handleFundNow = useCallback(() => {
+    // A parent can still override the built-in checkout.
     if (typeof onFundNow === "function") {
       onFundNow({ errandId, errand, offer: acceptedOffer, funding });
       return;
     }
 
-    toast.info(
-      "The existing funding checkout action has not been connected to this page."
-    );
+    if (!errand?.id) {
+      toast.error("Errand details are still loading.");
+      return;
+    }
+
+    setFundOpen(true);
   }, [onFundNow, errandId, errand, acceptedOffer, funding]);
+
+  const handleCloseFund = useCallback(() => setFundOpen(false), []);
 
   const errandActionItems = useMemo(
     () => [
@@ -591,6 +601,14 @@ export default function ErandDetails({
           onAction={handleFundNow}
         />
       ) : null}
+
+      <FundErrandModal
+        open={fundOpen}
+        errand={errand}
+        onClose={handleCloseFund}
+        onGetFundingSummary={getErrandFundingSummary}
+        onInitializePayment={initializePayment}
+      />
 
       <ProgressTracker
         errand={errand}

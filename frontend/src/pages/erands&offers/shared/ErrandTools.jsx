@@ -536,7 +536,7 @@ function DifferenceIndicator({
 
   return (
     <span
-      className={`inline-flex flex-wrap items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold ${
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold ${
         increased
           ? "bg-rose-50 text-rose-700"
           : "bg-success-soft text-success-dark"

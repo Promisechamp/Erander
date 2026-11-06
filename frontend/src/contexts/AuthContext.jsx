@@ -3,27 +3,44 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useState,
 } from "react";
-import { useLocation } from "react-router-dom";
-import { getCurrentUser, logoutUser } from "@/services/auth/authApi";
+import {
+  getCurrentUser,
+  loginUser,
+  logoutUser,
+} from "@/services/auth/authApi";
+import { resetApiSession, setUnauthenticatedHandler } from "@/services/api";
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const location = useLocation();
-
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState(null);
 
+  /* -------------------------------------------------------------- */
+  /*  Centralised 401 handler — any apiRequest that receives 401    */
+  /*  will trigger this, so a mid-session expiry clears local auth. */
+  /* -------------------------------------------------------------- */
+  useEffect(() => {
+    setUnauthenticatedHandler(() => {
+      setUser(null);
+      setAuthError(null);
+    });
+    return () => setUnauthenticatedHandler(null);
+  }, []);
+
+  /* -------------------------------------------------------------- */
+  /*  Re-fetch the authenticated user — exposed for callers that    */
+  /*  know a change occurred (e.g. after profile update).           */
+  /* -------------------------------------------------------------- */
   const refreshUser = useCallback(async () => {
     try {
       const authenticatedUser = await getCurrentUser();
-
       setUser(authenticatedUser);
       setAuthError(null);
-
       return authenticatedUser;
     } catch (error) {
       if (error.status === 401) {
@@ -31,28 +48,25 @@ export function AuthProvider({ children }) {
         setAuthError(null);
         return null;
       }
-
       setAuthError(error);
       throw error;
     }
   }, []);
 
+  /* -------------------------------------------------------------- */
+  /*  Initial auth check — runs ONCE on mount.                      */
+  /* -------------------------------------------------------------- */
   useEffect(() => {
     let active = true;
 
-    async function initializeAuthentication() {
-      setLoading(true);
-
+    (async () => {
       try {
         const authenticatedUser = await getCurrentUser();
-
-        if (active) {
-          setUser(authenticatedUser);
-          setAuthError(null);
-        }
+        if (!active) return;
+        setUser(authenticatedUser);
+        setAuthError(null);
       } catch (error) {
         if (!active) return;
-
         if (error.status === 401) {
           setUser(null);
           setAuthError(null);
@@ -60,37 +74,62 @@ export function AuthProvider({ children }) {
           setAuthError(error);
         }
       } finally {
-        if (active) {
-          setLoading(false);
-        }
+        if (active) setLoading(false);
       }
-    }
-
-    initializeAuthentication();
+    })();
 
     return () => {
       active = false;
     };
-  }, [location.pathname]);
+  }, []);
 
+  /* -------------------------------------------------------------- */
+  /*  Sign in — populates user directly so no follow-up fetch.      */
+  /* -------------------------------------------------------------- */
+  const signIn = useCallback(async ({ email, password, remember }) => {
+    const result = await loginUser({ email, password, remember });
+
+    if (result?.user) {
+      setUser(result.user);
+      setAuthError(null);
+      return result.user;
+    }
+
+    // Fallback if /auth/login doesn't return the user object.
+    const authenticatedUser = await getCurrentUser();
+    setUser(authenticatedUser);
+    setAuthError(null);
+    return authenticatedUser;
+  }, []);
+
+  /* -------------------------------------------------------------- */
+  /*  Sign out — best-effort server logout, always clears locally.  */
+  /*  Also clears the CSRF cache so the next session starts fresh.  */
+  /* -------------------------------------------------------------- */
   const signOut = useCallback(async () => {
     try {
       await logoutUser();
+    } catch {
+      // Local sign-out proceeds even if the server call fails.
     } finally {
-      // Clear the local authenticated state even if the request fails.
+      resetApiSession();
       setUser(null);
       setAuthError(null);
     }
   }, []);
 
-  const value = {
-    user,
-    loading,
-    authError,
-    isAuthenticated: Boolean(user),
-    refreshUser,
-    signOut,
-  };
+  const value = useMemo(
+    () => ({
+      user,
+      loading,
+      authError,
+      isAuthenticated: Boolean(user),
+      refreshUser,
+      signIn,
+      signOut,
+    }),
+    [user, loading, authError, refreshUser, signIn, signOut]
+  );
 
   return (
     <AuthContext.Provider value={value}>
@@ -101,12 +140,8 @@ export function AuthProvider({ children }) {
 
 export function useAuth() {
   const context = useContext(AuthContext);
-
   if (!context) {
-    throw new Error(
-      "useAuth must be used inside an AuthProvider."
-    );
+    throw new Error("useAuth must be used inside an AuthProvider.");
   }
-
   return context;
 }

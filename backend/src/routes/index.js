@@ -1,15 +1,19 @@
 import { Router } from "express";
 
 import authRoutes from "../modules/auth/auth.routes.js";
+import adminAuthRoutes from "../modules/admin/auth/adminAuth.routes.js";
+import adminDashboardRoutes from "../modules/admin/dashboard/adminDashboard.routes.js";
+import adminRecordsRoutes from "../modules/admin/records/adminRecords.routes.js";
+import adminActionsRoutes from "../modules/admin/actions/adminActions.routes.js";
 import profileRoutes from "../modules/profiles/profile.routes.js";
 import erandRoutes from "../modules/erands/erand.routes.js";
 import availableErandRoutes from "../modules/erands/available-erands.routes.js";
 import erandOfferRoutes from "../modules/erands/erand-offer.routes.js";
 import paymentRoutes from "../modules/payments/payment.routes.js";
+import walletRoutes, { walletAdminRoutes } from "../modules/wallets/wallet.routes.js";
 
 const router = Router();
 
-// API status
 router.get("/", (req, res) => {
   res.status(200).json({
     success: true,
@@ -18,22 +22,21 @@ router.get("/", (req, res) => {
   });
 });
 
-// Authentication routes
 router.use("/auth", authRoutes);
-
-// User profile and saved addresses
+router.use("/auth/admin", adminAuthRoutes);
 router.use("/profiles", profileRoutes);
-
-// Available errands for eranders
 router.use("/erands/available", availableErandRoutes);
-
-// Customer errand management
 router.use("/erands", erandRoutes);
-
-// Erander offers
 router.use("/", erandOfferRoutes);
-
-// Customer payment operations
 router.use("/payments", paymentRoutes);
+router.use("/wallets", walletRoutes);
+
+// Protected admin read models using the separate administrator session.
+router.use("/admin/dashboard", adminDashboardRoutes);
+router.use("/admin/records", adminRecordsRoutes);
+router.use("/admin/actions", adminActionsRoutes);
+
+// Existing finance-admin wallet operations and Paystack withdrawal workflow.
+router.use("/admin/wallets", walletAdminRoutes);
 
 export default router;

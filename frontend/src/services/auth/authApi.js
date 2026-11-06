@@ -1,26 +1,28 @@
 import { apiRequest } from "../api";
 
-/**
- * Retrieve the currently authenticated user.
- */
 export async function getCurrentUser() {
   const result = await apiRequest("/auth/me");
-
   const user = result?.data?.user;
 
   if (!user) {
-    throw new Error("Unable to retrieve your authenticated user.");
+    const error = new Error("Unable to retrieve your authenticated user.");
+    error.status = 401;          // ← treat as unauthenticated
+    throw error;
   }
 
   return user;
 }
 
-/**
- * Sign out the current user.
- */
+export function loginUser({ email, password, remember }) {
+  return apiRequest("/auth/login", {
+    method: "POST",
+    body: { email, password, remember },  
+  });
+}
+
 export function logoutUser() {
   return apiRequest("/auth/logout", {
     method: "POST",
-    body: JSON.stringify({}),
+    body: {},                          
   });
 }

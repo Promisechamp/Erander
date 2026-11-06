@@ -1109,7 +1109,7 @@ function Select({
         onKeyDown={handleTriggerKeyDown}
         className={cn(
           "group flex min-h-[48px] w-full items-center gap-2.5",
-          "rounded-xl border bg-surface-white pl-3.5 pr-2.5",
+          "rounded-full border bg-surface-white pl-3.5 pr-2.5",
           "text-left outline-none transition-colors duration-150",
           "focus-visible:ring-2 focus-visible:ring-offset-1",
           error
@@ -1194,7 +1194,7 @@ function Select({
             onClick={clear}
             className="
               flex h-7 w-7 shrink-0 items-center justify-center
-              rounded-lg text-content-muted
+              rounded-full text-content-muted
               transition-colors
               hover:bg-brand-pale hover:text-brand-navy
               focus-visible:outline-none

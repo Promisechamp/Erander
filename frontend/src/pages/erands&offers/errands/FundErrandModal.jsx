@@ -1,543 +1,490 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
-AlertCircle,
-CheckCircle2,
-LoaderCircle,
-LockKeyhole,
-ShieldCheck,
-Wallet,
-X,
+  AlertCircle,
+  CheckCircle2,
+  LoaderCircle,
+  LockKeyhole,
+  RefreshCw,
+  ShieldCheck,
 } from "lucide-react";
+
+import Modal from "@/components/Modal";
+
+import { formatMoney } from "../shared/ErrandTools";
 
 const PENDING_PAYMENT_KEY = "erander.pendingPayment";
 
-function formatCurrency(value, currency = "NGN") {
-const amount = Number(value);
-
-if (!Number.isFinite(amount)) {
-return "Unavailable";
-}
-
-try {
-return new Intl.NumberFormat("en-NG", {
-style: "currency",
-currency,
-maximumFractionDigits: 2,
-}).format(amount);
-} catch {
-return `${currency} ${amount.toLocaleString("en-NG")}`;
-}
-}
-
 function getErrorMessage(error) {
-return (
-error?.response?.data?.message ||
-error?.response?.data?.error ||
-error?.message ||
-"We couldn't process your request. Please try again."
-);
+  return (
+    error?.response?.data?.message ||
+    error?.response?.data?.error ||
+    error?.message ||
+    "We couldn't process your request. Please try again."
+  );
 }
 
 function getErrandId(errand) {
-return errand?.id || errand?.erand_id || null;
+  return errand?.id || errand?.erand_id || null;
 }
 
-function normalizeFundingSummary(result, errand) {
-const details =
-result?.data?.funding ||
-result?.funding ||
-result?.data ||
-result;
+function normalizeFundingSummary(result, fallbackCurrency) {
+  const details =
+    result?.data?.funding || result?.funding || result?.data || result;
 
-const agreedTotal = Number(details?.agreedTotal);
-const amountFunded = Number(details?.amountFunded);
-const amountDue = Number(details?.amountDue);
-const overpaymentAmount = Number(details?.overpaymentAmount ?? 0);
+  const agreedTotal = Number(details?.agreedTotal);
+  const amountFunded = Number(details?.amountFunded);
+  const amountDue = Number(details?.amountDue);
+  const overpaymentAmount = Number(details?.overpaymentAmount ?? 0);
 
-const currency = String(
-details?.currency || errand?.currency_code || "NGN",
-)
-.trim()
-.toUpperCase();
+  const currency = String(details?.currency || fallbackCurrency || "NGN")
+    .trim()
+    .toUpperCase();
 
-if (
-!Number.isFinite(agreedTotal) ||
-!Number.isFinite(amountFunded) ||
-!Number.isFinite(amountDue) ||
-!Number.isFinite(overpaymentAmount) ||
-agreedTotal <= 0 ||
-amountFunded < 0 ||
-amountDue < 0 ||
-overpaymentAmount < 0 ||
-!/^[A-Z]{3}$/.test(currency)
-) {
-throw new Error(
-"The server returned an invalid funding summary. Please refresh the errand and try again.",
-);
+  if (
+    !Number.isFinite(agreedTotal) ||
+    !Number.isFinite(amountFunded) ||
+    !Number.isFinite(amountDue) ||
+    !Number.isFinite(overpaymentAmount) ||
+    agreedTotal <= 0 ||
+    amountFunded < 0 ||
+    amountDue < 0 ||
+    overpaymentAmount < 0 ||
+    !/^[A-Z]{3}$/.test(currency)
+  ) {
+    throw new Error(
+      "The server returned an invalid funding summary. Please refresh the errand and try again."
+    );
+  }
+
+  return {
+    ...details,
+    agreedTotal,
+    amountFunded,
+    amountDue,
+    overpaymentAmount,
+    currency,
+  };
 }
 
-return {
-...details,
-agreedTotal,
-amountFunded,
-amountDue,
-overpaymentAmount,
-currency,
-};
+function SummaryRow({ label, value, valueClassName = "" }) {
+  return (
+    <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-2.5">
+      <dt className="text-sm text-content-muted">{label}</dt>
+      <dd
+        className={`min-w-0 break-words text-right text-sm font-semibold tabular-nums text-content ${valueClassName}`}
+      >
+        {value}
+      </dd>
+    </div>
+  );
 }
 
 export default function FundErrandModal({
-open,
-errand,
-onClose,
-onGetFundingSummary,
-onInitializePayment,
+  open,
+  errand,
+  onClose,
+  onGetFundingSummary,
+  onInitializePayment,
 }) {
-const [paymentDetails, setPaymentDetails] = useState(null);
-const [loading, setLoading] = useState(false);
-const [paying, setPaying] = useState(false);
-const [error, setError] = useState("");
+  const [paymentDetails, setPaymentDetails] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [paying, setPaying] = useState(false);
+  const [error, setError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
 
-const errandId = getErrandId(errand);
+  const errandId = getErrandId(errand);
+  const errandCurrency = errand?.currency_code;
 
-useEffect(() => {
-if (!open) {
-setPaymentDetails(null);
-setLoading(false);
-setPaying(false);
-setError("");
-return undefined;
-}
+  // Closing is blocked while a checkout is being prepared.
+  const handleClose = useCallback(() => {
+    if (!paying) onClose?.();
+  }, [paying, onClose]);
 
-const handleKeyDown = (event) => {
-  if (event.key === "Escape" && !paying) {
-    onClose?.();
-  }
-};
+  useEffect(() => {
+    if (!open) {
+      setPaymentDetails(null);
+      setLoading(false);
+      setPaying(false);
+      setError("");
+    }
+  }, [open]);
 
-window.addEventListener("keydown", handleKeyDown);
-
-return () => {
-  window.removeEventListener("keydown", handleKeyDown);
-};
-
-}, [open, paying, onClose]);
-
-useEffect(() => {
-if (!open || !errandId) {
-setPaymentDetails(null);
-setLoading(false);
-setError("");
-return undefined;
-}
-
-let cancelled = false;
-
-async function loadPaymentDetails() {
-  setLoading(true);
-  setError("");
-  setPaymentDetails(null);
-
-  try {
-    if (typeof onGetFundingSummary !== "function") {
-      throw new Error(
-        "The funding-summary service has not been connected.",
-      );
+  useEffect(() => {
+    if (!open || !errandId) {
+      setPaymentDetails(null);
+      setLoading(false);
+      setError("");
+      return undefined;
     }
 
-    const result = await onGetFundingSummary(errandId);
+    let cancelled = false;
 
-    if (cancelled) {
+    async function loadPaymentDetails() {
+      setLoading(true);
+      setError("");
+      setPaymentDetails(null);
+
+      try {
+        if (typeof onGetFundingSummary !== "function") {
+          throw new Error("The funding-summary service has not been connected.");
+        }
+
+        const result = await onGetFundingSummary(errandId);
+
+        if (cancelled) return;
+
+        setPaymentDetails(normalizeFundingSummary(result, errandCurrency));
+      } catch (requestError) {
+        if (!cancelled) setError(getErrorMessage(requestError));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadPaymentDetails();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, errandId, errandCurrency, onGetFundingSummary, reloadKey]);
+
+  if (!open) return null;
+
+  const currency = paymentDetails?.currency || errandCurrency || "NGN";
+  const amountDue = paymentDetails?.amountDue;
+
+  const canPay =
+    Boolean(paymentDetails) &&
+    Number.isFinite(amountDue) &&
+    amountDue > 0 &&
+    !loading &&
+    !paying;
+
+  const fundedPercent = paymentDetails
+    ? Math.min(
+        100,
+        Math.max(
+          0,
+          (paymentDetails.amountFunded / paymentDetails.agreedTotal) * 100
+        )
+      )
+    : 0;
+
+  const handlePayment = async () => {
+    if (!canPay || !errandId) return;
+
+    if (typeof onInitializePayment !== "function") {
+      setError("The payment service has not been connected.");
       return;
     }
 
-    const details = normalizeFundingSummary(result, errand);
+    setPaying(true);
+    setError("");
 
-    setPaymentDetails(details);
-  } catch (requestError) {
-    if (!cancelled) {
-      setError(getErrorMessage(requestError));
+    try {
+      const result = await onInitializePayment(errandId);
+
+      const checkout = result?.data?.data || result?.data || result;
+
+      const authorizationUrl =
+        checkout?.authorizationUrl || checkout?.authorization_url;
+
+      const paymentId =
+        checkout?.paymentId || checkout?.payment_id || checkout?.payment?.id;
+
+      const reference =
+        checkout?.reference ||
+        checkout?.paymentReference ||
+        checkout?.payment_reference;
+
+      if (typeof paymentId !== "string" || !paymentId.trim()) {
+        throw new Error(
+          "The server did not return a valid payment ID. Please try again."
+        );
+      }
+
+      if (typeof reference !== "string" || !reference.trim()) {
+        throw new Error(
+          "The server did not return a valid payment reference. Please try again."
+        );
+      }
+
+      let parsedUrl;
+
+      try {
+        parsedUrl = new URL(authorizationUrl);
+      } catch {
+        throw new Error("The payment provider did not return a valid checkout URL.");
+      }
+
+      if (parsedUrl.protocol !== "https:" || !parsedUrl.hostname) {
+        throw new Error(
+          "The payment provider did not return a valid secure checkout URL."
+        );
+      }
+
+      const hostname = parsedUrl.hostname.toLowerCase();
+
+      const isPaystackCheckout =
+        hostname === "checkout.paystack.com" ||
+        hostname.endsWith(".paystack.com");
+
+      if (!isPaystackCheckout) {
+        throw new Error(
+          "The payment provider returned an unexpected checkout address."
+        );
+      }
+
+      const pendingPayment = {
+        paymentId: paymentId.trim(),
+        reference: reference.trim(),
+        errandId: String(errandId),
+        createdAt: new Date().toISOString(),
+      };
+
+      try {
+        window.sessionStorage.setItem(
+          PENDING_PAYMENT_KEY,
+          JSON.stringify(pendingPayment)
+        );
+      } catch {
+        throw new Error(
+          "Your browser could not save the payment session. Please enable browser storage and try again. No checkout redirect was started."
+        );
+      }
+
+      window.location.assign(parsedUrl.toString());
+    } catch (paymentError) {
+      setError(getErrorMessage(paymentError));
+      setPaying(false);
     }
-  } finally {
-    if (!cancelled) {
-      setLoading(false);
-    }
-  }
-}
-
-loadPaymentDetails();
-
-return () => {
-  cancelled = true;
-};
-
-}, [open, errandId, onGetFundingSummary]);
-
-if (!open) {
-return null;
-}
-
-const currency =
-paymentDetails?.currency ||
-errand?.currency_code ||
-"NGN";
-
-const amountDue = paymentDetails?.amountDue;
-
-const canPay =
-Boolean(paymentDetails) &&
-Number.isFinite(amountDue) &&
-amountDue > 0 &&
-!loading &&
-!paying;
-
-const handlePayment = async () => {
-if (!canPay || !errandId) {
-return;
-}
-
-if (typeof onInitializePayment !== "function") {
-  setError("The payment service has not been connected.");
-  return;
-}
-
-setPaying(true);
-setError("");
-
-try {
-  const result = await onInitializePayment(errandId);
-
-  const checkout =
-    result?.data?.data ||
-    result?.data ||
-    result;
-
-  const authorizationUrl =
-    checkout?.authorizationUrl ||
-    checkout?.authorization_url;
-
-  const paymentId =
-    checkout?.paymentId ||
-    checkout?.payment_id ||
-    checkout?.payment?.id;
-
-  const reference =
-    checkout?.reference ||
-    checkout?.paymentReference ||
-    checkout?.payment_reference;
-
-  if (
-    typeof paymentId !== "string" ||
-    !paymentId.trim()
-  ) {
-    throw new Error(
-      "The server did not return a valid payment ID. Please try again.",
-    );
-  }
-
-  if (
-    typeof reference !== "string" ||
-    !reference.trim()
-  ) {
-    throw new Error(
-      "The server did not return a valid payment reference. Please try again.",
-    );
-  }
-
-  let parsedUrl;
-
-  try {
-    parsedUrl = new URL(authorizationUrl);
-  } catch {
-    throw new Error(
-      "The payment provider did not return a valid checkout URL.",
-    );
-  }
-
-  if (
-    parsedUrl.protocol !== "https:" ||
-    !parsedUrl.hostname
-  ) {
-    throw new Error(
-      "The payment provider did not return a valid secure checkout URL.",
-    );
-  }
-
-  const hostname = parsedUrl.hostname.toLowerCase();
-
-  const isPaystackCheckout =
-    hostname === "checkout.paystack.com" ||
-    hostname.endsWith(".paystack.com");
-
-  if (!isPaystackCheckout) {
-    throw new Error(
-      "The payment provider returned an unexpected checkout address.",
-    );
-  }
-
-  const pendingPayment = {
-    paymentId: paymentId.trim(),
-    reference: reference.trim(),
-    errandId: String(errandId),
-    createdAt: new Date().toISOString(),
   };
 
-  try {
-    window.sessionStorage.setItem(
-      PENDING_PAYMENT_KEY,
-      JSON.stringify(pendingPayment),
-    );
-  } catch {
-    throw new Error(
-      "Your browser could not save the payment session. Please enable browser storage and try again. No checkout redirect was started.",
-    );
-  }
+  return (
+    <Modal
+      isOpen={open}
+      onClose={handleClose}
+      title="Fund your errand"
+      description="Review your agreed amount before continuing to secure checkout."
+      size="sm"
+    >
+      <div className="space-y-6">
+        {/* AMOUNT PAYABLE */}
 
-  window.location.assign(parsedUrl.toString());
-} catch (paymentError) {
-  setError(getErrorMessage(paymentError));
-  setPaying(false);
-}
+        <div className="rounded-2xl bg-brand-navy px-5 py-5 text-content-inverse">
+          <p className="text-sm text-white/70">Amount payable now</p>
 
-};
-
-return (
-<div
-className="fixed inset-0 z-[100] flex items-end justify-center bg-[#091426]/60 p-0 backdrop-blur-sm sm:items-center sm:p-4"
-onMouseDown={(event) => {
-if (event.target === event.currentTarget && !paying) {
-onClose?.();
-}
-}}
->
-<section
-role="dialog"
-aria-modal="true"
-aria-labelledby="fund-errand-title"
-aria-describedby="fund-errand-description"
-className="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl"
->
-<header className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-100 bg-white px-5 py-5 sm:px-7">
-<div className="flex items-start gap-3">
-<div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#e9fbf3] text-[#15803d]">
-<Wallet size={22} />
+          <div className="mt-1 flex min-h-[2.25rem] items-center sm:min-h-[2.5rem]">
+  {loading ? (
+    <span role="status" aria-live="polite">
+      <LoaderCircle
+        className="h-8 w-8 animate-spin text-brand-mint sm:h-9 sm:w-9"
+        aria-hidden="true"
+      />
+      <span className="sr-only">Loading amount</span>
+    </span>
+  ) : (
+    <p className="break-words text-3xl font-extrabold tracking-tight tabular-nums text-brand-mint sm:text-4xl">
+      {paymentDetails ? formatMoney(paymentDetails.amountDue, currency) : "—"}
+    </p>
+  )}
 </div>
 
-        <div>
-          <h2
-            id="fund-errand-title"
-            className="text-lg font-extrabold text-[#14213d] sm:text-xl"
-          >
-            Fund your errand
-          </h2>
-
-          <p
-            id="fund-errand-description"
-            className="mt-1 text-sm leading-5 text-slate-500"
-          >
-            Review your agreed amount before continuing to secure
-            checkout.
+          <p className="mt-2 text-xs leading-5 text-white/70">
+            Based on the accepted offer and the funding already recorded.
           </p>
         </div>
-      </div>
 
-      <button
-        type="button"
-        onClick={onClose}
-        disabled={paying}
-        aria-label="Close funding modal"
-        className="rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-[#14213d] disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        <X size={20} />
-      </button>
-    </header>
+        {/* ERRAND + BREAKDOWN */}
 
-    <div className="space-y-5 px-5 py-5 sm:px-7 sm:py-6">
-      <div className="rounded-2xl bg-[#14213d] p-5 text-white">
-        <p className="text-xs font-semibold uppercase tracking-wider text-white/60">
-          Amount payable now
-        </p>
+        <div>
+          <p className="text-xs font-semibold text-content-muted">Errand</p>
 
-        <p className="mt-2 break-words text-3xl font-extrabold tracking-tight sm:text-4xl">
-          {loading
-            ? "Loading…"
-            : paymentDetails
-              ? formatCurrency(paymentDetails.amountDue, currency)
-              : "—"}
-        </p>
+          <p className="mt-1 break-words text-sm font-extrabold text-content">
+            {errand?.title || "Your errand"}
+          </p>
 
-        <p className="mt-2 text-xs leading-5 text-white/65">
-          Your payment amount is based on the accepted offer and the
-          funding already recorded by ERANDER.
-        </p>
-      </div>
+          <p className="mt-0.5 break-words text-xs text-content-subtle">
+            Reference {errand?.reference_code || errand?.reference || "—"}
+          </p>
 
-      <div className="rounded-2xl border border-slate-200 p-4 sm:p-5">
-        <div className="flex items-center justify-between gap-4 border-b border-slate-100 pb-4">
-          <div className="min-w-0">
-            <p className="text-xs font-semibold text-slate-500">
-              Errand
-            </p>
+          {loading ? (
+            <div
+              role="status"
+              aria-live="polite"
+              className="mt-4 space-y-3"
+            >
+              <span className="sr-only">Retrieving your funding summary</span>
+              <div className="h-4 animate-pulse rounded-full bg-surface-muted" />
+              <div className="h-4 animate-pulse rounded-full bg-surface-muted" />
+              <div className="h-4 w-2/3 animate-pulse rounded-full bg-surface-muted" />
+            </div>
+          ) : paymentDetails ? (
+            <div className="mt-4 space-y-4">
+              <dl className="divide-y divide-line-soft border-y border-line-soft">
+                <SummaryRow
+                  label="Agreed errand total"
+                  value={formatMoney(paymentDetails.agreedTotal, currency)}
+                />
 
-            <p className="mt-1 break-words text-sm font-extrabold text-[#14213d]">
-              {errand?.title || "Your errand"}
-            </p>
+                <SummaryRow
+                  label="Already funded"
+                  value={formatMoney(paymentDetails.amountFunded, currency)}
+                  valueClassName="!text-success-dark"
+                />
 
-            <p className="mt-1 break-words text-xs text-slate-400">
-              Reference:{" "}
-              {errand?.reference_code || errand?.reference || "—"}
-            </p>
-          </div>
+                <SummaryRow
+                  label="Outstanding balance"
+                  value={formatMoney(paymentDetails.amountDue, currency)}
+                  valueClassName="!font-extrabold"
+                />
 
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-50 text-slate-500">
-            <Wallet size={18} />
-          </div>
+                {paymentDetails.eranderName ? (
+                  <SummaryRow
+                    label="Accepted erander"
+                    value={paymentDetails.eranderName}
+                    valueClassName="tabular-nums-none"
+                  />
+                ) : null}
+              </dl>
+
+              <div>
+                <div className="flex items-baseline justify-between gap-3 text-xs">
+                  <span className="font-semibold text-content">
+                    Funded so far
+                  </span>
+                  <span className="tabular-nums text-content-muted">
+                    {Math.round(fundedPercent)}%
+                  </span>
+                </div>
+
+                <div
+                  className="mt-2 h-2 overflow-hidden rounded-full bg-surface-muted"
+                  role="progressbar"
+                  aria-label="Funding progress"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(fundedPercent)}
+                >
+                  <div
+                    className="h-full rounded-full bg-brand-green transition-[width] duration-500 ease-out"
+                    style={{ width: `${fundedPercent}%` }}
+                  />
+                </div>
+              </div>
+
+              {paymentDetails.amountDue === 0 ? (
+                <p
+                  role="status"
+                  className="flex items-center gap-2 rounded-r-2xl border-l-4 border-success bg-brand-pale p-4 text-sm font-semibold text-success-dark"
+                >
+                  <CheckCircle2 size={17} aria-hidden="true" />
+                  There is no outstanding balance.
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <div className="mt-4 flex items-start gap-3 rounded-2xl bg-surface p-4">
+              <AlertCircle
+                size={19}
+                className="mt-0.5 shrink-0 text-content-muted"
+                aria-hidden="true"
+              />
+
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-content">
+                  Funding summary unavailable
+                </p>
+
+                <p className="mt-1 text-sm leading-6 text-content-muted">
+                  We couldn't retrieve the funding summary. No payment checkout
+                  has been started.
+                </p>
+
+                <button
+                  type="button"
+                  onClick={() => setReloadKey((key) => key + 1)}
+                  className="mt-3 inline-flex items-center gap-2 rounded-full border border-line bg-surface-white px-4 py-2 text-xs font-bold text-content-muted transition hover:bg-surface hover:text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy"
+                >
+                  <RefreshCw size={13} aria-hidden="true" />
+                  Try again
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
-        {loading ? (
+        {/* ERROR */}
+
+        {error ? (
           <div
-            role="status"
-            aria-live="polite"
-            className="flex items-center gap-3 py-6 text-sm text-slate-500"
+            role="alert"
+            className="flex items-start gap-3 rounded-r-2xl border-l-4 border-red-500 bg-red-50 p-4"
           >
-            <LoaderCircle size={18} className="animate-spin" />
-            Retrieving your confirmed funding summary…
-          </div>
-        ) : paymentDetails ? (
-          <div className="space-y-4 pt-4">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-sm text-slate-500">
-                Agreed errand total
-              </span>
-
-              <span className="text-right text-sm font-bold text-[#14213d]">
-                {formatCurrency(paymentDetails.agreedTotal, currency)}
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-sm text-slate-500">
-                Already funded
-              </span>
-
-              <span className="text-right text-sm font-bold text-emerald-700">
-                {formatCurrency(paymentDetails.amountFunded, currency)}
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-4">
-              <span className="text-sm font-extrabold text-[#14213d]">
-                Outstanding balance
-              </span>
-
-              <span className="text-right text-base font-extrabold text-[#14213d]">
-                {formatCurrency(paymentDetails.amountDue, currency)}
-              </span>
-            </div>
-
-            {paymentDetails.eranderName && (
-              <div className="rounded-xl bg-slate-50 p-3">
-                <p className="text-xs font-semibold text-slate-500">
-                  Accepted erander
-                </p>
-
-                <p className="mt-1 text-sm font-bold text-[#14213d]">
-                  {paymentDetails.eranderName}
-                </p>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="flex items-start gap-3 py-5">
             <AlertCircle
               size={19}
-              className="mt-0.5 shrink-0 text-rose-600"
+              className="mt-0.5 shrink-0 text-red-600"
+              aria-hidden="true"
             />
 
-            <p className="text-sm leading-6 text-slate-600">
-              We couldn't retrieve the funding summary. No payment
-              checkout has been initiated.
-            </p>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold text-red-950">
+                Unable to continue
+              </p>
+
+              <p className="mt-1 break-words text-sm leading-6 text-red-800">
+                {error}
+              </p>
+            </div>
           </div>
-        )}
-      </div>
+        ) : null}
 
-      {error && (
-        <div
-          role="alert"
-          className="flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4"
-        >
-          <AlertCircle
-            size={19}
-            className="mt-0.5 shrink-0 text-rose-600"
-          />
 
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-bold text-rose-800">
-              Unable to continue
-            </p>
 
-            <p className="mt-1 break-words text-sm leading-5 text-rose-700">
-              {error}
-            </p>
+        {/* ACTIONS */}
+
+        <div>
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
+            <button
+              type="button"
+              onClick={handleClose}
+              disabled={paying}
+              className="rounded-full border border-line px-5 py-3 text-sm font-bold text-content-muted transition hover:bg-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Cancel
+            </button>
+
+            <button
+              type="button"
+              onClick={handlePayment}
+              disabled={!canPay}
+              className="inline-flex items-center justify-center gap-2 rounded-full bg-brand-green px-6 py-3 text-sm font-extrabold text-brand-navy transition hover:brightness-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {paying ? (
+                <>
+                  <LoaderCircle
+                    size={17}
+                    className="animate-spin"
+                    aria-hidden="true"
+                  />
+                  Preparing secure checkout
+                </>
+              ) : (
+                <>
+                  <LockKeyhole size={16} aria-hidden="true" />
+                  Continue to secure payment
+                </>
+              )}
+            </button>
           </div>
+
+          {paying ? (
+            <p className="mt-3 text-center text-xs text-content-muted">
+              Please don't close this page while checkout is being prepared.
+            </p>
+          ) : null}
         </div>
-      )}
-
-      <div className="rounded-xl border border-emerald-100 bg-[#e9fbf3] p-4">
-        <div className="flex items-start gap-3">
-          <ShieldCheck
-            size={20}
-            className="mt-0.5 shrink-0 text-[#15803d]"
-          />
-
-          <div>
-            <p className="text-sm font-extrabold text-[#14213d]">
-              Secure payment
-            </p>
-
-            <p className="mt-1 text-xs leading-5 text-slate-600">
-              Your transaction is initiated through ERANDER's backend.
-              Payment confirmation depends on server-side verification,
-              not just the checkout redirect.
-            </p>
-          </div>
-        </div>
       </div>
-
-      <button
-        type="button"
-        onClick={handlePayment}
-        disabled={!canPay}
-        className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#35d07f] px-5 py-4 text-sm font-extrabold text-[#14213d] transition hover:bg-[#27bd6f] disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {paying ? (
-          <>
-            <LoaderCircle size={18} className="animate-spin" />
-            Preparing secure checkout…
-          </>
-        ) : (
-          <>
-            <LockKeyhole size={17} />
-            Continue to Secure Payment
-          </>
-        )}
-      </button>
-
-      {paymentDetails && paymentDetails.amountDue === 0 && (
-        <p className="flex items-center justify-center gap-2 text-center text-sm font-semibold text-emerald-700">
-          <CheckCircle2 size={17} />
-          There is no outstanding balance.
-        </p>
-      )}
-
-      <p className="text-center text-xs leading-5 text-slate-400">
-        Do not close this page while payment initialization is in
-        progress.
-      </p>
-    </div>
-  </section>
-</div>
-
-);
+    </Modal>
+  );
 }
