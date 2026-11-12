@@ -21,3 +21,8 @@ export function getAdminErrandDetails(erandId) {
 export function getAdminUserDetails(profileId) {
   return apiRequest(`/admin/records/users/${encodeURIComponent(profileId)}/details`);
 }
+
+export function getAdminTransactionDetails(transactionId, kind = "wallet") {
+  const params = new URLSearchParams({ kind });
+  return apiRequest(`/admin/records/transactions/${encodeURIComponent(transactionId)}/details?${params.toString()}`);
+}

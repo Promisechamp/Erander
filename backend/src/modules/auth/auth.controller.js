@@ -18,6 +18,7 @@ export async function register(req, res, next) {
       phone,
       password,
       role,
+      preferred_currency,
     } = req.body;
 
     const { data, error } = await supabase.auth.signUp({
@@ -29,6 +30,7 @@ export async function register(req, res, next) {
           last_name,
           phone,
           role,
+          preferred_currency,
         },
       },
     });
@@ -97,6 +99,7 @@ export async function register(req, res, next) {
         user: {
           id: data.user.id,
           email: data.user.email,
+          user_metadata: data.user.user_metadata,
         },
         confirmationRequired,
       },
@@ -105,6 +108,7 @@ export async function register(req, res, next) {
     next(error);
   }
 }
+
 
 export async function login(req, res, next) {
   try {
@@ -137,32 +141,81 @@ export async function login(req, res, next) {
     if (error || !data.user || !data.session) {
       return res.status(401).json({
         success: false,
-        message:
-          "Invalid email or password. Please try again.",
+        message: "Invalid email or password. Please try again.",
       });
     }
 
-    setSessionCookies(
-      res,
-      data.session,
-      remember === true
-    );
+    setSessionCookies(res, data.session, remember === true);
+
+    /**
+     * Pull the full profile row so the login response matches /auth/me.
+     * Failure to load the profile must NOT break login — the user is
+     * already authenticated at this point, so we fall back gracefully.
+     */
+    let normalizedProfile = null;
+
+    try {
+      const pool = getDatabasePool();
+
+      const result = await pool.query(
+        `SELECT *
+         FROM public.profiles
+         WHERE id = $1
+         LIMIT 1`,
+        [data.user.id]
+      );
+
+      const profile = result.rows[0] ?? null;
+
+      if (profile) {
+        let addresses = profile.addresses;
+
+        if (typeof addresses === "string") {
+          try {
+            addresses = JSON.parse(addresses);
+          } catch {
+            console.error(
+              "Profile addresses could not be parsed for user:",
+              data.user.id
+            );
+            addresses = [];
+          }
+        }
+
+        normalizedProfile = {
+          ...profile,
+          addresses: Array.isArray(addresses) ? addresses : [],
+        };
+      }
+    } catch (profileError) {
+      console.error(
+        "Profile could not be loaded during login for user:",
+        data.user.id,
+        profileError?.message
+      );
+    }
+
+    const user = {
+      ...(normalizedProfile ?? {}),
+     // id: data.user.id,
+     // email: data.user.email,
+      user_metadata: data.user.user_metadata,
+     // preferred_currency: data.user.user_metadata?.preferred_currency,
+    };
 
     return res.status(200).json({
       success: true,
       message: "Welcome back to ERANDER!",
       data: {
-        user: {
-          id: data.user.id,
-          email: data.user.email,
-          user_metadata: data.user.user_metadata,
-        },
+        user,
+        profile: normalizedProfile,
       },
     });
   } catch (error) {
     next(error);
   }
 }
+
 
 /**
  * GET /api/v1/auth/me
@@ -184,19 +237,7 @@ export async function me(req, res, next) {
     const pool = getDatabasePool();
 
     const result = await pool.query(
-      `SELECT
-          id,
-          first_name,
-          last_name,
-          other_names,
-          display_name,
-          avatar_url,
-          phone,
-          user_roles,
-          account_status,
-          addresses,
-          created_at,
-          updated_at
+      `SELECT *
        FROM public.profiles
        WHERE id = $1
        LIMIT 1`,
@@ -221,8 +262,7 @@ export async function me(req, res, next) {
 
           return res.status(500).json({
             success: false,
-            message:
-              "Your profile addresses could not be retrieved.",
+            message: "Your profile addresses could not be retrieved.",
           });
         }
       }
@@ -235,8 +275,7 @@ export async function me(req, res, next) {
 
         return res.status(500).json({
           success: false,
-          message:
-            "Your profile addresses could not be retrieved.",
+          message: "Your profile addresses could not be retrieved.",
         });
       }
 
@@ -246,14 +285,24 @@ export async function me(req, res, next) {
       };
     }
 
+    /**
+     * `user` contains every column from public.profiles, plus the
+     * auth-only fields (`email`, `user_metadata`) that don't live in
+     * the profiles table. Auth fields win on collision so we never
+     * leak a stale email from the profiles row.
+     */
+    const user = {
+      ...(normalizedProfile ?? {}),
+     // id: req.user.id,
+     // email: req.user.email,
+      user_metadata: req.user.user_metadata,
+     // preferred_currency: req.user.user_metadata?.preferred_currency,
+    };
+
     return res.status(200).json({
       success: true,
       data: {
-        user: {
-          id: req.user.id,
-          email: req.user.email,
-          user_metadata: req.user.user_metadata,
-        },
+        user,
         profile: normalizedProfile,
       },
     });
@@ -261,6 +310,7 @@ export async function me(req, res, next) {
     next(error);
   }
 }
+
 
 export async function logout(req, res) {
   clearSessionCookies(res);

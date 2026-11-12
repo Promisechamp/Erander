@@ -1602,12 +1602,12 @@ export async function createWithdrawalRequest(req, res) {
 export async function listMyWithdrawals(req, res) {
   try {
     const result = await getDatabasePool().query(
-      `SELECT id, reference, status, amount_minor,
-              fee_minor, net_amount_minor, currency_code,
+      `SELECT id, reference, wallet_transaction_id, status,
+              amount_minor, fee_minor, net_amount_minor, currency_code,
+              payment_provider, provider_transfer_reference, provider_transfer_code,
               bank_name_snapshot, account_name_snapshot,
-              account_number_last4_snapshot,
-              rejection_reason, failure_reason,
-              created_at, reviewed_at, processed_at, completed_at
+              account_number_last4_snapshot, rejection_reason, failure_reason,
+              created_at, updated_at, reviewed_at, processed_at, completed_at
          FROM public.withdrawal_requests
         WHERE profile_id = $1::uuid
         ORDER BY created_at DESC

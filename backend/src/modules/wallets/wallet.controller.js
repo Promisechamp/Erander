@@ -277,6 +277,160 @@ export async function getWalletOverview(req, res) {
   }
 }
 
+
+/**
+ * Loads the related financial records for a wallet transaction. The base
+ * transaction is already ownership-checked by the caller. Related records
+ * are read-only and never change balances or statuses.
+ */
+export async function loadWalletTransactionDetails(pool, transaction) {
+  const transactionId = transaction.id;
+  const relatedErandId = transaction.related_erand_id || null;
+
+  const [ledgerResult, withdrawalResult, securityTransactionsResult, relatedTransactionsResult] = await Promise.all([
+    pool.query(
+      `SELECT transaction_id, account_id, entry_side, amount_minor, currency_code, description
+       FROM public.wallet_ledger_entries
+       WHERE transaction_id = $1::uuid`,
+      [transactionId],
+    ),
+    pool.query(
+      `SELECT id, reference, status, currency_code, amount_minor, fee_minor, net_amount_minor,
+              payment_provider, provider_transfer_code, provider_transfer_reference,
+              bank_name_snapshot, account_name_snapshot, account_number_last4_snapshot,
+              rejection_reason, failure_reason, created_at, updated_at, reviewed_at,
+              processed_at, completed_at
+       FROM public.withdrawal_requests
+       WHERE wallet_transaction_id = $1::uuid
+       ORDER BY created_at DESC`,
+      [transactionId],
+    ),
+    pool.query(
+      `SELECT id, security_account_id, reservation_id, erand_id, wallet_transaction_id,
+              transaction_type, amount_minor, currency_code, status, payment_provider,
+              provider_reference, reason, failure_reason, initiated_at, provider_confirmed_at,
+              platform_confirmed_at, created_at, updated_at
+       FROM public.erander_security_deposit_transactions
+       WHERE wallet_transaction_id = $1::uuid
+       ORDER BY created_at DESC`,
+      [transactionId],
+    ),
+    pool.query(
+      `SELECT id, wallet_id, reference, type, amount_minor, currency_code, status, description,
+              related_erand_id, related_transaction_id, payment_provider, provider_reference,
+              created_at, updated_at, completed_at
+       FROM public.wallet_transactions
+       WHERE related_transaction_id = $1::uuid OR id = $2::uuid
+       ORDER BY created_at ASC`,
+      [transactionId, transaction.related_transaction_id || transactionId],
+    ),
+  ]);
+
+  const securityTransactions = securityTransactionsResult.rows;
+  const reservationIds = [...new Set(securityTransactions.map((item) => item.reservation_id).filter(Boolean))];
+  let reservations = [];
+  let claims = [];
+  if (reservationIds.length) {
+    const [reservationResult, claimResult] = await Promise.all([
+      pool.query(
+        `SELECT id, security_account_id, erand_id, amount_minor, currency_code, status,
+                reserved_at, released_at, release_reason, notes, created_at, updated_at
+         FROM public.erander_security_deposit_reservations
+         WHERE id = ANY($1::uuid[]) ORDER BY created_at ASC`,
+        [reservationIds],
+      ),
+      pool.query(
+        `SELECT id, reservation_id, erand_id, customer_id, erander_id, currency_code,
+                requested_amount_minor, approved_amount_minor, status, claim_reason, evidence,
+                trust_safety_decision, trust_safety_reason, trust_safety_decided_at,
+                finance_authorized_at, settled_at, created_at, updated_at
+         FROM public.erander_security_deposit_claims
+         WHERE reservation_id = ANY($1::uuid[]) ORDER BY created_at ASC`,
+        [reservationIds],
+      ),
+    ]);
+    reservations = reservationResult.rows;
+    claims = claimResult.rows;
+  }
+
+  let errand = null;
+  let payments = [];
+  let refunds = [];
+  let settlements = [];
+  let paymentEvents = [];
+  let paymentConfirmations = [];
+  if (relatedErandId) {
+    const errandResult = await pool.query(
+      `SELECT id, reference_code, title, status, category, currency_code, estimated_total,
+              requested_by, assigned_erander_id, created_at, updated_at
+       FROM public.erands WHERE id = $1::uuid LIMIT 1`,
+      [relatedErandId],
+    );
+    errand = errandResult.rows[0] || null;
+    const paymentResult = await pool.query(
+      `SELECT id, erand_id, payer_id, payment_type, amount, currency_code, status,
+              payment_provider, provider_reference, initiated_at, provider_confirmed_at,
+              platform_confirmed_at, failure_reason, created_at
+       FROM public.erand_payments WHERE erand_id = $1::uuid ORDER BY created_at ASC`,
+      [relatedErandId],
+    );
+    payments = paymentResult.rows;
+    const paymentIds = payments.map((item) => item.id);
+    if (paymentIds.length) {
+      const [refundResult, eventResult, confirmationResult] = await Promise.all([
+        pool.query(
+          `SELECT id, payment_id, requested_by, amount, currency_code, status, reason,
+                  payment_provider, provider_refund_reference, initiated_at,
+                  provider_confirmed_at, platform_confirmed_at, failure_reason, created_at
+           FROM public.erand_refunds WHERE payment_id = ANY($1::uuid[]) ORDER BY created_at ASC`,
+          [paymentIds],
+        ),
+        pool.query(
+          `SELECT id, payment_id, payment_provider, provider_event_id, event_type,
+                  processing_status, payload_hash, metadata, created_at, updated_at
+           FROM public.erand_payment_events WHERE payment_id = ANY($1::uuid[]) ORDER BY created_at ASC`,
+          [paymentIds],
+        ),
+        pool.query(
+          `SELECT to_jsonb(pc) AS record FROM public.erand_payment_confirmations pc
+           WHERE pc.payment_id = ANY($1::uuid[]) ORDER BY pc.created_at ASC`,
+          [paymentIds],
+        ),
+      ]);
+      refunds = refundResult.rows;
+      paymentEvents = eventResult.rows;
+      paymentConfirmations = confirmationResult.rows.map((item) => item.record);
+    }
+    const settlementResult = await pool.query(
+      `SELECT id, erand_id, recipient_id, settlement_type, amount, currency_code, status,
+              payment_provider, provider_reference, approved_at, initiated_at,
+              provider_confirmed_at, platform_confirmed_at, failure_reason, created_at
+       FROM public.erand_settlements WHERE erand_id = $1::uuid ORDER BY created_at ASC`,
+      [relatedErandId],
+    );
+    settlements = settlementResult.rows;
+  }
+
+  return {
+    ledgerEntries: ledgerResult.rows,
+    withdrawalRequests: withdrawalResult.rows,
+    securityDepositTransactions: securityTransactions,
+    reservations,
+    claims,
+    relatedTransactions: relatedTransactionsResult.rows.filter((item) => item.id !== transactionId),
+    errand,
+    payments,
+    refunds,
+    settlements,
+    paymentEvents,
+    paymentConfirmations,
+    communications: {
+      available: false,
+      message: "No transaction-linked messaging table or API is present in the supplied v5 implementation. Existing chat data has not been guessed or exposed.",
+    },
+  };
+}
+
 /**
  * GET /api/v1/wallets/transactions/:transactionId
  *
@@ -341,11 +495,24 @@ export async function getWalletTransaction(req, res) {
       );
     }
 
+    const details = await loadWalletTransactionDetails(pool, result.rows[0]);
+
+    // A linked errand is exposed only to one of its participants.
+    if (details.errand && ![details.errand.requested_by, details.errand.assigned_erander_id].includes(profileId)) {
+      details.errand = null;
+      details.payments = [];
+      details.refunds = [];
+      details.settlements = [];
+      details.paymentEvents = [];
+      details.paymentConfirmations = [];
+    }
+
     return res.status(200).json({
       success: true,
-      message: "Wallet transaction retrieved successfully.",
+      message: "Wallet transaction details retrieved successfully.",
       data: {
         transaction: serializeTransaction(result.rows[0]),
+        details,
       },
     });
   } catch (error) {

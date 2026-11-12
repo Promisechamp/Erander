@@ -1,1512 +1,1170 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { toast } from "sonner";
 import {
-  ArrowDownRight,
-  ArrowLeft,
-  ArrowRight,
-  ArrowUpRight,
-  BriefcaseBusiness,
-  CalendarDays,
-  Check,
-  CheckCircle2,
-  ChevronDown,
-  Clock3,
-  FileText,
-  Filter,
-  HandCoins,
-  Info,
-  LoaderCircle,
-  Package,
-  RefreshCw,
-  Search,
-  Send,
-  ShieldCheck,
-  Tag,
-  Truck,
-  Wallet,
-  X,
-  XCircle,
+  ArrowDownRight, ArrowLeft, ArrowRight, ArrowUpRight,
+  BriefcaseBusiness, CalendarDays, CheckCircle2, ChevronRight,
+  Clock3, FileText, Flag, HandCoins, Info, Loader2, MessageSquare,
+  Package, RefreshCw, Search, Send, ShieldCheck, Tag, Truck, Wallet, X, XCircle,
 } from "lucide-react";
 
 import DashboardLayout from "@/components/layout/DashboardLayout";
+import Modal from "@/components/Modal";
+import ActionMenu from "@/components/ActionMenu";
+import CreateSupportTicket from "@/pages/support/CreateSupportTicket";
+import { useAuth } from "@/contexts/AuthContext";
+import { useChat } from "@/contexts/ChatContext";
 
-import {
-  getMyErandOffers,
-  withdrawErandOffer,
-} from "@/services/offers/offersApi";
+import { getMyErandOffers, withdrawErandOffer } from "@/services/offers/offersApi";
+
+/* -------------------------------------------------------------------------- */
+/*                                  CONSTANTS                                 */
+/* -------------------------------------------------------------------------- */
 
 const PAGE_SIZE = 10;
+const DEFAULT_CURRENCY = "NGN";
+const EASE = [0.22, 1, 0.36, 1];
 
 const STATUS_OPTIONS = [
   { value: "all", label: "All offers" },
   { value: "pending", label: "Pending" },
   { value: "accepted", label: "Accepted" },
-  { value: "rejected", label: "Rejected" },
+  { value: "rejected", label: "Not selected" },
   { value: "withdrawn", label: "Withdrawn" },
   { value: "expired", label: "Expired" },
   { value: "superseded", label: "Superseded" },
 ];
 
 const STATUS_STYLES = {
-  pending: {
-    label: "Awaiting response",
-    className: "border-amber-200 bg-amber-50 text-amber-700",
-    icon: Clock3,
-  },
-  accepted: {
-    label: "Accepted",
-    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    icon: CheckCircle2,
-  },
-  rejected: {
-    label: "Not selected",
-    className: "border-rose-200 bg-rose-50 text-rose-700",
-    icon: XCircle,
-  },
-  withdrawn: {
-    label: "Withdrawn",
-    className: "border-slate-200 bg-slate-100 text-slate-600",
-    icon: ArrowDownRight,
-  },
-  expired: {
-    label: "Expired",
-    className: "border-slate-200 bg-slate-100 text-slate-600",
-    icon: Clock3,
-  },
-  superseded: {
-    label: "Superseded",
-    className: "border-violet-200 bg-violet-50 text-violet-700",
-    icon: ArrowUpRight,
-  },
+  pending: { label: "Awaiting response", tone: "attention", icon: Clock3 },
+  accepted: { label: "Accepted", tone: "success", icon: CheckCircle2 },
+  rejected: { label: "Not selected", tone: "danger", icon: XCircle },
+  withdrawn: { label: "Withdrawn", tone: "neutral", icon: ArrowDownRight },
+  expired: { label: "Expired", tone: "neutral", icon: Clock3 },
+  superseded: { label: "Superseded", tone: "info", icon: ArrowUpRight },
 };
 
 const ERRAND_STATUS_STYLES = {
-  awaiting_funding: {
-    label: "Awaiting funding",
-    className: "border-amber-200 bg-amber-50 text-amber-700",
-    icon: Clock3,
-  },
-  funded: {
-    label: "Funded",
-    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    icon: Wallet,
-  },
-  in_progress: {
-    label: "In progress",
-    className: "border-blue-200 bg-blue-50 text-blue-700",
-    icon: Truck,
-  },
-  completion_submitted: {
-    label: "Completion review",
-    className: "border-violet-200 bg-violet-50 text-violet-700",
-    icon: FileText,
-  },
-  completed: {
-    label: "Completed",
-    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    icon: CheckCircle2,
-  },
-  disputed: {
-    label: "Disputed",
-    className: "border-rose-200 bg-rose-50 text-rose-700",
-    icon: ShieldCheck,
-  },
-  cancelled: {
-    label: "Cancelled",
-    className: "border-slate-200 bg-slate-100 text-slate-600",
-    icon: XCircle,
-  },
-  expired: {
-    label: "Expired",
-    className: "border-slate-200 bg-slate-100 text-slate-600",
-    icon: Clock3,
-  },
+  awaiting_funding: { label: "Awaiting funding", tone: "attention", icon: Clock3 },
+  funded: { label: "Funded", tone: "success", icon: Wallet },
+  in_progress: { label: "In progress", tone: "info", icon: Truck },
+  completion_submitted: { label: "Completion review", tone: "attention", icon: FileText },
+  completed: { label: "Completed", tone: "success", icon: CheckCircle2 },
+  disputed: { label: "Disputed", tone: "danger", icon: ShieldCheck },
+  cancelled: { label: "Cancelled", tone: "neutral", icon: XCircle },
+  expired: { label: "Expired", tone: "neutral", icon: Clock3 },
 };
 
 const CATEGORY_LABELS = {
-  shopping: "Shopping",
-  delivery: "Delivery",
-  pickup: "Pickup",
-  home_help: "Home help",
-  personal_assistance: "Personal assistance",
-  business_support: "Business support",
-  other: "Other errands",
-  groceries: "Shopping & groceries",
-  documents: "Documents & office",
+  shopping: "Shopping", delivery: "Delivery", pickup: "Pickup",
+  home_help: "Home help", personal_assistance: "Personal assistance",
+  business_support: "Business support", other: "Other errands",
+  groceries: "Shopping & groceries", documents: "Documents & office",
   gifts: "Gifts & special requests",
 };
 
-function cn(...classes) {
-  return classes.filter(Boolean).join(" ");
-}
+const FUNDED_OR_LATER = ["funded", "in_progress", "completion_submitted", "completed"];
+const COMPLETABLE_ERRAND_STATUSES = ["funded", "in_progress"];
 
-function formatMoney(value, currency = "NGN") {
+/* -------------------------------------------------------------------------- */
+/*                              DESIGN TOKENS                                 */
+/* -------------------------------------------------------------------------- */
+
+const CARD = "rounded-2xl border border-line bg-surface-white shadow-erander-card";
+
+const BTN =
+  "inline-flex min-h-10 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
+
+const BTN_GREEN = `${BTN} bg-brand-green text-brand shadow-sm hover:brightness-95 active:scale-[0.98]`;
+const BTN_NAVY = `${BTN} bg-brand text-content-inverse shadow-sm hover:opacity-90 active:scale-[0.98]`;
+const BTN_GHOST = `${BTN} border border-line bg-surface-white text-content-muted hover:border-line-strong hover:bg-surface-muted hover:text-content`;
+const BTN_DANGER = `${BTN} bg-rose-600 text-white shadow-sm hover:bg-rose-700 active:scale-[0.98]`;
+const BTN_DANGER_SOFT = `${BTN} border border-rose-200 bg-rose-50 text-rose-600 hover:border-rose-300 hover:bg-rose-100`;
+
+const EYEBROW = "text-[11px] font-extrabold uppercase tracking-[0.14em] text-content-subtle";
+
+const CHIP_TONE = {
+  success: "bg-brand-pale text-success-dark",
+  attention: "bg-amber-50 text-amber-700",
+  danger: "bg-rose-50 text-rose-600",
+  info: "bg-blue-50 text-blue-700",
+  neutral: "bg-surface-muted text-content-muted",
+};
+
+const sectionReveal = (i = 0) => ({
+  initial: { opacity: 0, y: 14 },
+  animate: { opacity: 1, y: 0 },
+  transition: { duration: 0.42, delay: 0.035 + i * 0.045, ease: EASE },
+});
+
+/* -------------------------------------------------------------------------- */
+/*                                   HELPERS                                  */
+/* -------------------------------------------------------------------------- */
+
+const cn = (...classes) => classes.filter(Boolean).join(" ");
+
+function formatMoney(value, currency = DEFAULT_CURRENCY) {
   const amount = Number(value);
-
-  if (!Number.isFinite(amount)) {
-    return "—";
-  }
-
+  if (value === null || value === undefined || value === "") return "—";
+  if (!Number.isFinite(amount)) return "—";
   try {
     return new Intl.NumberFormat("en-NG", {
-      style: "currency",
-      currency: currency || "NGN",
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
+      style: "currency", currency: currency || DEFAULT_CURRENCY,
+      minimumFractionDigits: 2, maximumFractionDigits: 2,
     }).format(amount);
   } catch {
-    return `${currency || "NGN"} ${amount.toLocaleString("en-NG", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })}`;
+    return `${currency || DEFAULT_CURRENCY} ${amount.toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
 }
 
 function formatDate(value, includeTime = false) {
   if (!value) return "Not specified";
-
   const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "Not specified";
-  }
-
+  if (Number.isNaN(date.getTime())) return "Not specified";
   return new Intl.DateTimeFormat("en-NG", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    ...(includeTime
-      ? {
-          hour: "numeric",
-          minute: "2-digit",
-        }
-      : {}),
+    day: "numeric", month: "short", year: "numeric",
+    ...(includeTime ? { hour: "numeric", minute: "2-digit" } : {}),
   }).format(date);
 }
 
-function normalizeStatus(status) {
-  return String(status || "").toLowerCase().trim();
-}
+const normalizeStatus = (status) => String(status || "").toLowerCase().trim();
 
 function getOfferStatus(status) {
   const normalized = normalizeStatus(status) || "pending";
-
-  return (
-    STATUS_STYLES[normalized] || {
-      label: normalized
-        .replaceAll("_", " ")
-        .replace(/\b\w/g, (character) => character.toUpperCase()),
-      className: "border-slate-200 bg-slate-100 text-slate-600",
-      icon: Info,
-    }
-  );
+  return STATUS_STYLES[normalized] || {
+    label: normalized.replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+    tone: "neutral", icon: Info,
+  };
 }
 
 function getErrandFromOffer(offer) {
-  return (
-    offer?.errand ||
-    offer?.erand ||
-    offer?.errands ||
-    offer?.erands ||
-    offer?.request ||
-    offer?.errand_request ||
-    offer?.erand_request ||
-    {}
-  );
+  return offer?.errand || offer?.erand || offer?.errands || offer?.erands
+    || offer?.request || offer?.errand_request || offer?.erand_request || {};
 }
 
-function getOfferId(offer) {
-  const candidates = [
-    offer?.id,
-    offer?.offer_id,
-    offer?.offerId,
-  ];
-
-  return (
-    candidates.find(
-      (value) =>
-        typeof value === "string" && value.trim().length > 0
-    ) || ""
-  );
+function firstString(candidates) {
+  return candidates.find((v) => typeof v === "string" && v.trim().length > 0) || "";
 }
+
+const getOfferId = (offer) => firstString([offer?.id, offer?.offer_id, offer?.offerId]);
 
 function getErrandId(offer) {
   const errand = getErrandFromOffer(offer);
-
-  const candidates = [
-    offer?.erand_id,
-    offer?.errand_id,
-    offer?.request_id,
-    offer?.errandId,
-    offer?.erandId,
-    errand?.id,
-    errand?.erand_id,
-    errand?.errand_id,
-    errand?.request_id,
-    errand?.errandId,
-    errand?.erandId,
-  ];
-
-  return (
-    candidates.find(
-      (value) =>
-        typeof value === "string" && value.trim().length > 0
-    ) || ""
-  );
+  return firstString([
+    offer?.erand_id, offer?.errand_id, offer?.request_id, offer?.errandId, offer?.erandId,
+    errand?.id, errand?.erand_id, errand?.errand_id, errand?.request_id, errand?.errandId, errand?.erandId,
+  ]);
 }
 
-function getErrandTitle(offer) {
+const getErrandTitle = (offer) => {
   const errand = getErrandFromOffer(offer);
+  return errand?.title || offer?.errand_title || offer?.erand_title || offer?.request_title || "Untitled errand";
+};
 
-  return (
-    errand?.title ||
-    offer?.errand_title ||
-    offer?.erand_title ||
-    offer?.request_title ||
-    "Untitled errand"
-  );
-}
-
-function getErrandReference(offer) {
+const getErrandReference = (offer) => {
   const errand = getErrandFromOffer(offer);
-
-  return (
-    errand?.reference_code ||
-    offer?.reference_code ||
-    offer?.errand_reference ||
-    offer?.erand_reference ||
-    ""
-  );
-}
+  return errand?.reference_code || offer?.reference_code || offer?.errand_reference || offer?.erand_reference || "";
+};
 
 function getCurrency(offer) {
   const errand = getErrandFromOffer(offer);
-
-  return (
-    offer?.currency_code ||
-    offer?.currency ||
-    errand?.currency_code ||
-    errand?.currency ||
-    "NGN"
-  );
+  return offer?.currency_code || offer?.currency || errand?.currency_code || errand?.currency || DEFAULT_CURRENCY;
 }
 
 function getAmount(offer, field) {
   const value = offer?.[field];
-
-  if (value === undefined || value === null || value === "") {
-    return 0;
-  }
-
+  if (value === undefined || value === null || value === "") return 0;
   const amount = Number(value);
-
   return Number.isFinite(amount) ? amount : 0;
 }
 
 function getItemCount(offer) {
-  const items =
-    offer?.items ||
-    offer?.offer_items ||
-    offer?.erand_offer_items ||
-    [];
-
+  const items = offer?.items || offer?.offer_items || offer?.erand_offer_items || [];
   return Array.isArray(items) ? items.length : 0;
 }
 
-function getCreatedAt(offer) {
-  return offer?.created_at || offer?.submitted_at || null;
-}
+const getCreatedAt = (offer) => offer?.created_at || offer?.submitted_at || null;
+const getOfferMessage = (offer) => offer?.offer_message || offer?.message || "";
 
-function getOfferMessage(offer) {
-  return offer?.offer_message || offer?.message || "";
-}
-
-/**
- * Determines whether the customer has soft-deleted the errand.
- *
- * Deletion is independent of the offer's lifecycle status.
- * A pending offer remains pending in history, but it can no
- * longer be accepted after the customer removes the errand.
- */
 function isErrandDeleted(offer) {
   const errand = getErrandFromOffer(offer);
-
   return Boolean(
-    errand?.deleted_at ||
-      errand?.deletedAt ||
-      errand?.is_deleted === true ||
-      errand?.isDeleted === true ||
-      offer?.errand_deleted_at ||
-      offer?.erand_deleted_at ||
-      offer?.is_errand_deleted === true ||
-      offer?.is_erand_deleted === true
+    errand?.deleted_at || errand?.deletedAt || errand?.is_deleted === true || errand?.isDeleted === true
+    || offer?.errand_deleted_at || offer?.erand_deleted_at
+    || offer?.is_errand_deleted === true || offer?.is_erand_deleted === true
   );
 }
 
-/**
- * Reads the actual lifecycle status supplied by the API.
- * An accepted offer alone does not establish that the errand is funded.
- */
 function getErrandLifecycleStatus(offer) {
   const errand = getErrandFromOffer(offer);
-
-  const status = normalizeStatus(
-    errand?.status ||
-      offer?.errand_status ||
-      offer?.erand_status ||
-      offer?.request_status
-  );
-
-  if (ERRAND_STATUS_STYLES[status]) {
-    return status;
-  }
-
-  const fundingStatus = normalizeStatus(
-    errand?.funding_status ||
-      errand?.fundingStatus ||
-      offer?.funding_status ||
-      offer?.fundingStatus
-  );
-
-  if (["funded", "fully_funded"].includes(fundingStatus)) {
-    return "funded";
-  }
-
-  if (
-    ["awaiting_funding", "unfunded", "not_funded"].includes(
-      fundingStatus
-    )
-  ) {
-    return "awaiting_funding";
-  }
-
+  const status = normalizeStatus(errand?.status || offer?.errand_status || offer?.erand_status || offer?.request_status);
+  if (ERRAND_STATUS_STYLES[status]) return status;
+  const fundingStatus = normalizeStatus(errand?.funding_status || errand?.fundingStatus || offer?.funding_status || offer?.fundingStatus);
+  if (["funded", "fully_funded"].includes(fundingStatus)) return "funded";
+  if (["awaiting_funding", "unfunded", "not_funded"].includes(fundingStatus)) return "awaiting_funding";
   return "";
 }
 
 function normalizeOffersResponse(result) {
   const data = result?.data ?? result ?? {};
-
   let offers = [];
-
-  if (Array.isArray(data)) {
-    offers = data;
-  } else if (Array.isArray(data.offers)) {
-    offers = data.offers;
-  } else if (Array.isArray(data.myOffers)) {
-    offers = data.myOffers;
-  } else if (Array.isArray(data.results)) {
-    offers = data.results;
-  } else if (Array.isArray(data.items)) {
-    offers = data.items;
-  }
-
+  if (Array.isArray(data)) offers = data;
+  else if (Array.isArray(data.offers)) offers = data.offers;
+  else if (Array.isArray(data.myOffers)) offers = data.myOffers;
+  else if (Array.isArray(data.results)) offers = data.results;
+  else if (Array.isArray(data.items)) offers = data.items;
   const pagination = data.pagination || {};
   const total = Number(pagination.total);
   const totalPages = Number(pagination.totalPages);
-
   return {
     offers,
     pagination: {
       page: Number(pagination.page) || 1,
       limit: Number(pagination.limit) || PAGE_SIZE,
-      total:
-        Number.isFinite(total) && total >= 0
-          ? total
-          : offers.length,
-      totalPages:
-        Number.isFinite(totalPages) && totalPages >= 0
-          ? totalPages
-          : 1,
-      hasNextPage:
-        typeof pagination.hasNextPage === "boolean"
-          ? pagination.hasNextPage
-          : false,
-      hasPreviousPage:
-        typeof pagination.hasPreviousPage === "boolean"
-          ? pagination.hasPreviousPage
-          : false,
+      total: Number.isFinite(total) && total >= 0 ? total : offers.length,
+      totalPages: Number.isFinite(totalPages) && totalPages >= 0 ? totalPages : 1,
+      hasNextPage: typeof pagination.hasNextPage === "boolean" ? pagination.hasNextPage : false,
+      hasPreviousPage: typeof pagination.hasPreviousPage === "boolean" ? pagination.hasPreviousPage : false,
     },
   };
 }
 
-function canWithdraw(offer) {
-  return normalizeStatus(offer?.status) === "pending";
+const canWithdraw = (offer) => normalizeStatus(offer?.status) === "pending";
+
+function acceptedMessage(lifecycle) {
+  if (FUNDED_OR_LATER.includes(lifecycle)) return "The errand is funded or further along. Open the offer details to see the current stage and next steps.";
+  if (lifecycle === "awaiting_funding") return "The errand is awaiting funding. Don't start work until the required funding and next steps are confirmed.";
+  if (lifecycle) return "Review the current errand status and next steps in the offer details.";
+  return "Open the offer details to check the errand's funding status and next steps.";
+}
+
+/* -------------------------------------------------------------------------- */
+/*                              SKELETON PIECES                               */
+/* -------------------------------------------------------------------------- */
+
+function SkeletonBlock({ className = "", rounded = "rounded-lg" }) {
+  const reduce = useReducedMotion();
+  return (
+    <div className={`relative overflow-hidden bg-surface-muted ${rounded} ${className}`} aria-hidden="true">
+      {!reduce && (
+        <motion.div
+          className="absolute inset-0"
+          style={{ background: "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.75) 50%, transparent 100%)" }}
+          initial={{ x: "-100%" }}
+          animate={{ x: "100%" }}
+          transition={{ duration: 1.7, repeat: Infinity, ease: "easeInOut" }}
+        />
+      )}
+    </div>
+  );
+}
+
+function SkeletonCircle({ className = "" }) {
+  return <SkeletonBlock className={className} rounded="rounded-full" />;
 }
 
 function OfferSkeleton() {
   return (
-    <div className="animate-pulse rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0 flex-1 space-y-3">
-          <div className="h-3 w-24 rounded bg-slate-200" />
-          <div className="h-5 w-3/4 max-w-sm rounded bg-slate-200" />
-          <div className="h-3 w-40 rounded bg-slate-100" />
-        </div>
-
-        <div className="h-7 w-28 shrink-0 rounded-full bg-slate-100" />
-      </div>
-
-      <div className="my-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, index) => (
-          <div
-            key={index}
-            className="space-y-2 rounded-xl bg-slate-50 p-3"
-          >
-            <div className="h-3 w-16 rounded bg-slate-200" />
-            <div className="h-4 w-24 max-w-full rounded bg-slate-200" />
+    <div className={`${CARD} overflow-hidden`} aria-hidden="true">
+      <div className="p-5 pb-4 sm:p-6 sm:pb-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex min-w-0 flex-1 items-start gap-3.5">
+            <SkeletonCircle className="h-11 w-11 shrink-0" />
+            <div className="min-w-0 flex-1 space-y-2.5">
+              <div className="flex flex-wrap gap-2">
+                <SkeletonBlock className="h-3 w-20" />
+                <SkeletonBlock className="h-5 w-24" rounded="rounded-lg" />
+              </div>
+              <SkeletonBlock className="h-5 w-3/4 max-w-sm" rounded="rounded-md" />
+              <SkeletonBlock className="h-3 w-40" />
+            </div>
           </div>
-        ))}
+          <SkeletonBlock className="h-9 w-9 shrink-0" rounded="rounded-xl" />
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <SkeletonBlock className="h-6 w-32" rounded="rounded-lg" />
+          <SkeletonBlock className="h-6 w-24" rounded="rounded-lg" />
+        </div>
       </div>
-
-      <div className="flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="h-3 w-36 rounded bg-slate-100" />
-        <div className="h-10 w-full rounded-xl bg-slate-100 sm:w-36" />
+      <div className="border-t border-line-soft px-5 py-5 sm:px-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="space-y-2">
+            <SkeletonBlock className="h-4 w-32" />
+            <SkeletonBlock className="h-8 w-44" rounded="rounded-md" />
+          </div>
+          <SkeletonBlock className="h-7 w-28" rounded="rounded-full" />
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-line-soft sm:grid-cols-4">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="space-y-2 bg-surface px-4 py-3">
+              <SkeletonBlock className="h-3 w-16" />
+              <SkeletonBlock className="h-4 w-20" />
+            </div>
+          ))}
+        </div>
       </div>
-    </div>
-  );
-}
-
-function MetricCard({ label, value, icon: Icon, tone }) {
-  const tones = {
-    navy: "bg-[#14213d] text-white",
-    green: "bg-[#e9fbf3] text-[#15803d]",
-    amber: "bg-amber-50 text-amber-700",
-    slate: "bg-slate-100 text-slate-700",
-  };
-
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_8px_24px_rgba(20,33,61,0.04)] sm:p-5">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm font-medium text-slate-500">{label}</p>
-
-        <span
-          className={cn(
-            "rounded-xl p-2.5",
-            tones[tone] || tones.slate
-          )}
-        >
-          <Icon size={19} />
-        </span>
-      </div>
-
-      <p className="mt-3 text-2xl font-extrabold tracking-tight text-[#14213d]">
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function StatusBadge({ status }) {
-  const config = getOfferStatus(status);
-  const Icon = config.icon;
-
-  return (
-    <span
-      className={cn(
-        "inline-flex max-w-full items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold",
-        config.className
-      )}
-    >
-      <Icon size={14} className="shrink-0" />
-      <span>{config.label}</span>
-    </span>
-  );
-}
-
-function ErrandStatusBadge({ status }) {
-  const config = ERRAND_STATUS_STYLES[status];
-
-  if (!config) return null;
-
-  const Icon = config.icon;
-
-  return (
-    <span
-      className={cn(
-        "inline-flex max-w-full items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold",
-        config.className
-      )}
-      title="Current errand status"
-    >
-      <Icon size={14} className="shrink-0" />
-      <span>{config.label}</span>
-    </span>
-  );
-}
-
-function RemovedErrandBadge() {
-  return (
-    <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700">
-      <XCircle size={14} className="shrink-0" />
-      <span>Errand removed</span>
-    </span>
-  );
-}
-
-function RemovedErrandNotice({ offerStatus }) {
-  const pending = normalizeStatus(offerStatus) === "pending";
-
-  return (
-    <div className="mt-4 flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4">
-      <Info size={19} className="mt-0.5 shrink-0 text-rose-700" />
-
-      <div>
-        <p className="text-sm font-extrabold text-rose-800">
-          The customer removed this errand
-        </p>
-
-        <p className="mt-1 text-xs leading-5 text-rose-700">
-          {pending
-            ? "This offer has been preserved in your history, but the customer can no longer accept it. You may withdraw your pending offer if you no longer want it listed."
-            : "This errand has been removed from the customer's active errands. Your offer record and its history have been preserved."}
-        </p>
+      <div className="flex items-center justify-between border-t border-line-soft bg-surface/60 px-5 py-4 sm:px-6">
+        <SkeletonBlock className="h-4 w-32" />
+        <SkeletonBlock className="h-9 w-32" rounded="rounded-xl" />
       </div>
     </div>
   );
 }
 
-function OfferAmount({
-  label,
-  value,
-  currency,
-  emphasis = false,
-}) {
+function PageSkeleton() {
   return (
-    <div
-      className={cn(
-        "min-w-0 rounded-xl p-3",
-        emphasis ? "bg-[#e9fbf3]" : "bg-slate-50"
-      )}
-    >
-      <p className="text-xs font-medium text-slate-500">{label}</p>
+    <div className="space-y-5" role="status" aria-label="Loading your offers">
+      <span className="sr-only">Loading your offers…</span>
 
-      <p
-        className={cn(
-          "mt-1 break-words text-sm font-extrabold",
-          emphasis ? "text-[#15803d]" : "text-[#14213d]"
-        )}
-      >
-        {formatMoney(value, currency)}
-      </p>
-    </div>
-  );
-}
-
-function ConfirmationModal({
-  open,
-  offer,
-  busy,
-  onClose,
-  onConfirm,
-}) {
-  if (!open || !offer) return null;
-
-  const title = getErrandTitle(offer);
-  const errandDeleted = isErrandDeleted(offer);
-
-  return (
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-[#091426]/60 p-4 backdrop-blur-sm"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !busy) {
-          onClose();
-        }
-      }}
-    >
-      <section
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="withdraw-offer-title"
-        className="my-auto w-full max-w-md overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl"
-      >
-        <div className="flex items-start justify-between gap-4 border-b border-slate-100 p-5 sm:p-6">
-          <div>
-            <span className="inline-flex rounded-xl bg-rose-50 p-3 text-rose-600">
-              <XCircle size={22} />
-            </span>
-
-            <h2
-              id="withdraw-offer-title"
-              className="mt-4 text-xl font-extrabold text-[#14213d]"
+      <section className={`${CARD} p-5 sm:p-6`} aria-hidden="true">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <SkeletonBlock className="h-3 w-32" />
+          <div className="flex gap-2">
+            <SkeletonBlock className="h-10 w-24" rounded="rounded-xl" />
+            <SkeletonBlock className="h-10 w-32" rounded="rounded-xl" />
+          </div>
+        </div>
+        <div className="mt-5 space-y-3">
+          <SkeletonBlock className="h-8 w-48 max-w-lg" rounded="rounded-lg" />
+          <SkeletonBlock className="h-4 w-full max-w-xl" />
+        </div>
+        <div className="mt-6 grid grid-cols-2 border-t border-line pt-3 sm:grid-cols-4">
+          {[0, 1, 2, 3].map((i) => (
+            <div
+              key={i}
+              className={cn(
+                "min-w-0 py-3 pr-3",
+                i % 2 === 0 ? "pl-0" : "pl-3",
+                i % 2 === 1 && "border-l border-line",
+                i >= 2 && "border-t border-line",
+                i > 0 && "sm:border-l sm:border-line sm:pl-5",
+                i >= 2 && "sm:border-t-0"
+              )}
             >
-              Withdraw this offer?
-            </h2>
+              <SkeletonBlock className="h-3 w-16" />
+              <SkeletonBlock className="mt-2 h-4 w-20" />
+            </div>
+          ))}
+        </div>
+      </section>
 
-            <p className="mt-2 text-sm leading-6 text-slate-500">
-              You are about to withdraw your offer for{" "}
-              <span className="font-bold text-[#14213d]">
-                {title}
-              </span>
-              . The offer will remain in your history with its status
-              marked as withdrawn.
-            </p>
+      <section className="space-y-4" aria-hidden="true">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <SkeletonBlock className="h-11 w-full sm:w-96" rounded="rounded-xl" />
+          <SkeletonBlock className="h-4 w-32" />
+        </div>
+        <div className="flex gap-2 border-b border-line pb-0">
+          {[0, 1, 2, 3, 4].map((i) => (
+            <SkeletonBlock key={i} className="mb-3 h-4 w-20" />
+          ))}
+        </div>
+      </section>
 
-            {errandDeleted && (
-              <p className="mt-3 rounded-xl bg-rose-50 p-3 text-xs leading-5 text-rose-700">
-                The customer has already removed this errand. Your
-                pending offer can no longer be accepted.
-              </p>
-            )}
+      <section className="space-y-4" aria-hidden="true">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="space-y-2">
+            <SkeletonBlock className="h-5 w-40" rounded="rounded-md" />
+            <SkeletonBlock className="h-3 w-64" />
           </div>
-
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={busy}
-            aria-label="Close confirmation"
-            className="rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <X size={20} />
-          </button>
+          <SkeletonBlock className="h-4 w-24" />
         </div>
-
-        <div className="flex flex-col-reverse gap-3 bg-slate-50 p-5 sm:flex-row sm:justify-end sm:p-6">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={busy}
-            className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-5 text-sm font-bold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
-          >
-            Keep offer
-          </button>
-
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={busy}
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-rose-600 px-5 text-sm font-bold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {busy ? (
-              <>
-                <LoaderCircle size={17} className="animate-spin" />
-                Withdrawing...
-              </>
-            ) : (
-              <>
-                <XCircle size={17} />
-                Withdraw offer
-              </>
-            )}
-          </button>
-        </div>
+        <OfferSkeleton />
+        <OfferSkeleton />
       </section>
     </div>
   );
 }
 
-function EmptyState({
-  search,
-  status,
-  onReset,
-  onBrowse,
-}) {
-  const filtered = Boolean(search || status !== "all");
+/* -------------------------------------------------------------------------- */
+/*                                SMALL PIECES                                */
+/* -------------------------------------------------------------------------- */
 
+function Chip({ config, title }) {
+  const Icon = config.icon;
   return (
-    <div className="rounded-3xl border border-dashed border-slate-300 bg-white px-5 py-12 text-center sm:px-10">
-      <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-[#e9fbf3] text-[#15803d]">
-        <Send size={28} />
+    <span
+      title={title}
+      className={cn(
+        "inline-flex max-w-full shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-extrabold",
+        CHIP_TONE[config.tone] || CHIP_TONE.neutral
+      )}
+    >
+      <Icon size={12} className="shrink-0" aria-hidden="true" />
+      <span className="truncate">{config.label}</span>
+    </span>
+  );
+}
+
+function Notice({ tone = "danger", icon: Icon = Info, title, children }) {
+  const styles = {
+    danger: "border-rose-200 bg-rose-50 text-rose-900",
+    success: "border-line bg-brand-pale text-brand",
+    info: "border-blue-200 bg-blue-50 text-blue-900",
+    attention: "border-amber-200 bg-amber-50 text-amber-900",
+  };
+  const iconStyles = {
+    danger: "text-rose-600",
+    success: "text-success-dark",
+    info: "text-blue-700",
+    attention: "text-amber-700",
+  };
+  return (
+    <div
+      role={tone === "danger" ? "alert" : "status"}
+      className={cn("flex items-start gap-3 rounded-xl border p-4", styles[tone] || styles.info)}
+    >
+      <Icon size={18} className={cn("mt-0.5 shrink-0", iconStyles[tone] || iconStyles.info)} aria-hidden="true" />
+      <div className="min-w-0 flex-1">
+        {title ? <p className="text-sm font-extrabold">{title}</p> : null}
+        <div className={cn("text-sm leading-6 opacity-90", title && "mt-1")}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function Stat({ label, value, index = 0 }) {
+  return (
+    <div
+      className={cn(
+        "min-w-0 py-3 pr-3",
+        index % 2 === 0 ? "pl-0" : "pl-3",
+        index % 2 === 1 && "border-l border-line",
+        index >= 2 && "border-t border-line",
+        index > 0 && "sm:border-l sm:border-line sm:pl-5",
+        index >= 2 && "sm:border-t-0"
+      )}
+    >
+      <dt className="truncate text-xs font-semibold text-content-muted">{label}</dt>
+      <dd className="mt-1 truncate text-base font-extrabold tabular-nums text-content">{value}</dd>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                EMPTY STATE                                 */
+/* -------------------------------------------------------------------------- */
+
+function EmptyState({ search, status, onReset, onBrowse }) {
+  const filtered = Boolean(search || status !== "all");
+  return (
+    <div className={`${CARD} border-dashed border-line-strong px-6 py-14 text-center`}>
+      <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-brand-pale text-success-dark">
+        <Send size={20} aria-hidden="true" />
       </span>
-
-      <h3 className="mt-5 text-xl font-extrabold text-[#14213d]">
-        {filtered
-          ? "No matching offers"
-          : "Your offers will appear here"}
+      <h3 className="mt-4 text-lg font-extrabold tracking-tight text-content">
+        {filtered ? "No matching offers" : "Your offers will appear here"}
       </h3>
-
-      <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
+      <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-content-muted">
         {filtered
-          ? "Try a different search term or status filter to find the offer you are looking for."
-          : "When you submit an offer for an available errand, you will be able to review its price, status, and details here."}
+          ? "We couldn't find any offers matching your current filters. Try adjusting your search or status."
+          : "When you submit an offer on an available errand, you can track its status, pricing and customer response here."}
       </p>
-
       {filtered ? (
-        <button
-          type="button"
-          onClick={onReset}
-          className="mt-6 inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-200 px-5 text-sm font-bold text-[#14213d] transition hover:bg-slate-50"
-        >
-          Clear filters
+        <button type="button" onClick={onReset} className={`${BTN_GHOST} mt-6`}>
+          <X size={15} /> Clear filters
         </button>
       ) : (
-        <button
-          type="button"
-          onClick={onBrowse}
-          className="mt-6 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#14213d] px-5 text-sm font-bold text-white transition hover:bg-[#203659]"
-        >
-          <Search size={17} />
-          Browse available errands
-          <ArrowRight size={16} />
+        <button type="button" onClick={onBrowse} className={`${BTN_GREEN} mt-6`}>
+          <Search size={15} /> Browse available errands
         </button>
       )}
     </div>
   );
 }
 
-export default function MyOffersPage() {
+/* -------------------------------------------------------------------------- */
+/*                                STATUS TABS                                 */
+/* -------------------------------------------------------------------------- */
+
+function StatusTabs({ value, onChange }) {
+  return (
+    <div
+      role="tablist"
+      aria-label="Filter offers by status"
+      className="-mb-px flex gap-1 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+    >
+      {STATUS_OPTIONS.map((option) => {
+        const active = option.value === value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(option.value)}
+            className={cn(
+              "relative shrink-0 whitespace-nowrap px-4 py-3.5 text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand",
+              active ? "text-content" : "text-content-muted hover:text-content"
+            )}
+          >
+            {option.label}
+            {active ? (
+              <span aria-hidden="true" className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-brand" />
+            ) : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                OFFER CARD                                  */
+/* -------------------------------------------------------------------------- */
+
+function OfferCard({
+  offer, onOpen, onWithdraw, onReportIssue, onChatCustomer,
+  onMarkCompleted, markCompletedEnabled, openingChat,
+}) {
+  const offerId = getOfferId(offer);
+  const errandId = getErrandId(offer);
+  const title = getErrandTitle(offer);
+  const reference = getErrandReference(offer);
+  const currency = getCurrency(offer);
+  const status = normalizeStatus(offer.status);
+  const itemTotal = getAmount(offer, "proposed_item_total");
+  const serviceFee = getAmount(offer, "proposed_service_fee");
+  const deliveryFee = getAmount(offer, "proposed_delivery_fee");
+  const otherFees = getAmount(offer, "proposed_other_fees");
+  const proposedTotal = offer?.proposed_total;
+  const total =
+    proposedTotal !== undefined && proposedTotal !== null && proposedTotal !== ""
+      && Number.isFinite(Number(proposedTotal))
+      ? Number(proposedTotal)
+      : itemTotal + serviceFee + deliveryFee + otherFees;
+  const category = getErrandFromOffer(offer)?.category || offer?.category || "";
+  const itemCount = getItemCount(offer);
+  const submittedAt = getCreatedAt(offer);
+  const message = getOfferMessage(offer);
+  const lifecycle = getErrandLifecycleStatus(offer);
+  const deleted = isErrandDeleted(offer);
+  const config = getOfferStatus(status);
+  const CategoryIcon =
+    category === "delivery" || category === "pickup"
+      ? Truck
+      : category === "business_support"
+        ? BriefcaseBusiness
+        : Package;
+  const categoryLabel = CATEGORY_LABELS[category] || category.replaceAll("_", " ");
+
+  // ── Controlled menu state ──────────────────────────────────
+  // The menu is kept open during "Chat with customer" so the spinner is
+  // visible; the wrapper closes it once `openChat` resolves.
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  const handleChatSelect = useCallback(async () => {
+    try {
+      await onChatCustomer(offer);
+    } finally {
+      setMenuOpen(false);
+    }
+  }, [offer, onChatCustomer]);
+
+  const menuItems = useMemo(() => {
+    const items = [{ label: "View offer details", icon: FileText, onClick: () => onOpen(offer), disabled: !offerId }];
+    if (!deleted) items.push({ label: "Report an issue", icon: Flag, onClick: () => onReportIssue(offer), disabled: !errandId });
+    if (status === "accepted" && !deleted) {
+      items.push({
+        label: openingChat ? "Opening chat…" : "Chat with customer",
+        icon: MessageSquare,
+        onClick: handleChatSelect,
+        loading: openingChat,
+        disabled: openingChat || !errandId,
+        closeOnSelect: false,  // keep menu open while the chat modal opens
+      });
+    }
+    if (status === "accepted" && !deleted && COMPLETABLE_ERRAND_STATUSES.includes(lifecycle)) {
+      items.push({
+        label: "Mark as completed",
+        icon: CheckCircle2,
+        onClick: () => onMarkCompleted(offer),
+        disabled: markCompletedEnabled === false || openingChat,
+      });
+    }
+    return items;
+  }, [
+    deleted, status, lifecycle, offer, offerId, errandId, openingChat,
+    onOpen, onReportIssue, handleChatSelect, onMarkCompleted, markCompletedEnabled,
+  ]);
+
+  const breakdown = [
+    ["Items", itemTotal], ["Service fee", serviceFee],
+    ["Delivery fee", deliveryFee], ["Other fees", otherFees],
+  ];
+  const hasNotices = deleted || status === "accepted" || Boolean(message) || (status === "pending" && !deleted);
+
+  return (
+    <li className="min-w-0">
+      <article className={`${CARD} group overflow-hidden`}>
+        <header className="p-5 pb-4 sm:p-6 sm:pb-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex min-w-0 flex-1 items-start gap-3.5">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand text-content-inverse">
+                <CategoryIcon size={19} aria-hidden="true" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  {reference ? (
+                    <span className="whitespace-nowrap rounded-lg bg-brand-pale px-2 py-1 text-xs font-extrabold text-success-dark">
+                      {reference}
+                    </span>
+                  ) : null}
+                  {category ? (
+                    <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg bg-surface-muted px-2 py-1 text-xs font-semibold capitalize text-content-muted">
+                      <Tag size={10} aria-hidden="true" /> {categoryLabel}
+                    </span>
+                  ) : null}
+                </div>
+                <h3 className="mt-1.5 break-words text-base font-extrabold leading-6 tracking-tight text-content sm:text-lg">
+                  {title}
+                </h3>
+                {submittedAt ? (
+                  <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs font-medium text-content-muted">
+                    <CalendarDays size={13} className="shrink-0" aria-hidden="true" />
+                    Submitted {formatDate(submittedAt, true)}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+            <div className="shrink-0">
+              <ActionMenu
+                open={menuOpen}
+                onOpenChange={setMenuOpen}
+                items={menuItems}
+                align="top-right"
+                placement="top"
+                menuWidth={250}
+              />
+            </div>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Chip config={config} />
+            {deleted ? (
+              <Chip config={{ label: "Errand removed", tone: "danger", icon: XCircle }} />
+            ) : status === "accepted" && lifecycle ? (
+              <Chip config={ERRAND_STATUS_STYLES[lifecycle]} title="Current errand status" />
+            ) : null}
+          </div>
+        </header>
+
+        <div className="border-t border-line-soft px-5 py-5 sm:px-6">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="flex items-center gap-2 text-sm font-medium text-content-muted">
+                <Wallet size={14} aria-hidden="true" /> Your proposed total
+              </p>
+              <p className="mt-1 break-words text-3xl font-extrabold tracking-tight tabular-nums text-content">
+                {formatMoney(total, currency)}
+              </p>
+            </div>
+            {itemCount > 0 ? (
+              <span className="inline-flex items-center gap-2 whitespace-nowrap rounded-lg bg-surface-muted px-3 py-1.5 text-xs font-semibold text-content-muted">
+                <Package size={13} aria-hidden="true" />
+                {itemCount} priced {itemCount === 1 ? "item" : "items"}
+              </span>
+            ) : null}
+          </div>
+          <dl className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-line-soft sm:grid-cols-4">
+            {breakdown.map(([label, value]) => (
+              <div key={label} className="min-w-0 bg-surface px-4 py-3">
+                <dt className="truncate text-xs font-medium text-content-muted">{label}</dt>
+                <dd className="mt-1 truncate text-sm font-extrabold tabular-nums text-content">
+                  {formatMoney(value, currency)}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+
+        {hasNotices ? (
+          <div className="space-y-3 border-t border-line-soft px-5 py-5 sm:px-6">
+            {deleted ? (
+              <Notice tone="info" icon={Info} title="The customer removed this errand">
+                {status === "pending"
+                  ? "Your offer stays in your history, but the customer can no longer accept it. You can withdraw it if you don't want it listed."
+                  : "This errand was removed from the customer's active errands. Your offer record and its history are preserved."}
+              </Notice>
+            ) : null}
+            {status === "accepted" ? (
+              <Notice tone="success" icon={ShieldCheck} title="Your offer was accepted">
+                {acceptedMessage(lifecycle)}
+              </Notice>
+            ) : null}
+            {status === "pending" && !deleted ? (
+              <Notice tone="attention" icon={Clock3} title="Waiting for the customer">
+                Keep your prices and availability in mind while you wait.
+              </Notice>
+            ) : null}
+            {message ? (
+              <figure className="rounded-xl border border-line bg-surface-muted/60 p-4">
+                <figcaption className="text-sm font-extrabold text-content">
+                  Your message to the customer
+                </figcaption>
+                <p className="mt-1.5 line-clamp-4 whitespace-pre-wrap break-words text-sm leading-6 text-content-muted">
+                  {message}
+                </p>
+              </figure>
+            ) : null}
+          </div>
+        ) : null}
+
+        <footer className="flex flex-col gap-3 border-t border-line-soft bg-surface/60 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <button
+            type="button"
+            onClick={() => onOpen(offer)}
+            disabled={!offerId}
+            title={offerId ? "Open offer details and errand history" : "The API response does not contain an offer ID."}
+            className="inline-flex items-center gap-2 self-start rounded-lg text-sm font-extrabold text-brand transition hover:text-success focus:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            View offer details
+            <ChevronRight size={16} className="transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+          </button>
+          {canWithdraw(offer) ? (
+            <button type="button" onClick={() => onWithdraw(offer)} className={BTN_DANGER_SOFT}>
+              <X size={15} aria-hidden="true" /> Withdraw offer
+            </button>
+          ) : null}
+        </footer>
+      </article>
+    </li>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                               WITHDRAW MODAL                               */
+/* -------------------------------------------------------------------------- */
+
+function WithdrawModal({ offer, busy, onClose, onConfirm }) {
+  const deleted = offer ? isErrandDeleted(offer) : false;
+  return (
+    <Modal
+      isOpen={Boolean(offer)}
+      onClose={onClose}
+      dismissible={!busy}
+      loading={busy}
+      icon={XCircle}
+      tone="danger"
+      title="Withdraw this offer?"
+      subtitle="Offer"
+      size="sm"
+      position="center"
+      resizable={false}
+      footer={
+        <div className="flex flex-col-reverse gap-2.5 sm:flex-row sm:justify-end">
+          <button type="button" onClick={onClose} disabled={busy} className={BTN_GHOST}>
+            Keep offer
+          </button>
+          <button type="button" onClick={onConfirm} disabled={busy} className={BTN_DANGER}>
+            {busy ? (
+              <><Loader2 size={16} className="animate-spin" aria-hidden="true" /> Withdrawing</>
+            ) : (
+              <><XCircle size={16} aria-hidden="true" /> Withdraw offer</>
+            )}
+          </button>
+        </div>
+      }
+    >
+      {offer ? (
+        <div className="space-y-4 pb-1">
+          <p className="text-sm leading-6 text-content-muted">
+            You're about to withdraw your offer for{" "}
+            <strong className="font-extrabold text-content">{getErrandTitle(offer)}</strong>. It
+            will remain in your history, marked as withdrawn.
+          </p>
+          {deleted ? (
+            <Notice tone="info" icon={Info} title="The customer already removed this errand">
+              Your pending offer can no longer be accepted.
+            </Notice>
+          ) : null}
+        </div>
+      ) : null}
+    </Modal>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                    PAGE                                    */
+/* -------------------------------------------------------------------------- */
+
+export default function MyOffersPage({ onMarkCompleted }) {
   const navigate = useNavigate();
-
+  const { openChat } = useChat();
+  const { user } = useAuth();
   const [offers, setOffers] = useState([]);
-
   const [pagination, setPagination] = useState({
-    page: 1,
-    limit: PAGE_SIZE,
-    total: 0,
-    totalPages: 1,
-    hasNextPage: false,
-    hasPreviousPage: false,
+    page: 1, limit: PAGE_SIZE, total: 0, totalPages: 1,
+    hasNextPage: false, hasPreviousPage: false,
   });
-
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [page, setPage] = useState(1);
-
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
-
   const [withdrawTarget, setWithdrawTarget] = useState(null);
   const [withdrawing, setWithdrawing] = useState(false);
+  const [supportContext, setSupportContext] = useState(null);
+  const [openingChatOfferId, setOpeningChatOfferId] = useState(null);
 
   useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      setSearch(searchInput.trim());
-      setPage(1);
-    }, 300);
-
+    const timeout = window.setTimeout(() => { setSearch(searchInput.trim()); setPage(1); }, 300);
     return () => window.clearTimeout(timeout);
   }, [searchInput]);
 
-  const loadOffers = useCallback(
-    async ({ silent = false } = {}) => {
-      if (silent) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
-
+  const loadOffers = useCallback(async ({ silent = false } = {}) => {
+    if (silent) setRefreshing(true);
+    else setLoading(true);
+    if (!silent) setError("");
+    try {
+      const filters = { page, limit: PAGE_SIZE };
+      if (search) filters.search = search;
+      if (statusFilter !== "all") filters.status = statusFilter;
+      const result = await getMyErandOffers(filters);
+      const normalized = normalizeOffersResponse(result);
+      setOffers(normalized.offers);
+      setPagination(normalized.pagination);
       setError("");
+    } catch (requestError) {
+      const message = requestError?.message || "We could not load your offers. Please try again.";
+      setError(message);
+      if (silent) toast.error(message);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [page, search, statusFilter]);
 
-      try {
-        const filters = {
-          page,
-          limit: PAGE_SIZE,
-        };
+  useEffect(() => { loadOffers(); }, [loadOffers]);
 
-        if (search) {
-          filters.search = search;
-        }
-
-        if (statusFilter !== "all") {
-          filters.status = statusFilter;
-        }
-
-        const result = await getMyErandOffers(filters);
-        const normalized = normalizeOffersResponse(result);
-
-        setOffers(normalized.offers);
-        setPagination(normalized.pagination);
-      } catch (requestError) {
-        const message =
-          requestError?.message ||
-          "We could not load your offers. Please try again.";
-
-        setError(message);
-
-        if (silent) {
-          toast.error(message);
-        }
-      } finally {
-        setLoading(false);
-        setRefreshing(false);
-      }
-    },
-    [page, search, statusFilter]
-  );
-
-  useEffect(() => {
-    loadOffers();
-  }, [loadOffers]);
+  const multiplePages = pagination.totalPages > 1;
 
   const metrics = useMemo(() => {
-    const pending = offers.filter(
-      (offer) => normalizeStatus(offer.status) === "pending"
-    ).length;
-
-    const accepted = offers.filter(
-      (offer) => normalizeStatus(offer.status) === "accepted"
-    ).length;
-
-    const closed = offers.filter((offer) =>
-      ["rejected", "withdrawn", "expired", "superseded"].includes(
-        normalizeStatus(offer.status)
-      )
-    ).length;
-
+    const count = (list) => offers.filter((o) => list.includes(normalizeStatus(o.status))).length;
     return {
       total: pagination.total,
-      pending,
-      accepted,
-      closed,
+      pending: count(["pending"]),
+      accepted: count(["accepted"]),
+      closed: count(["rejected", "withdrawn", "expired", "superseded"]),
     };
   }, [offers, pagination.total]);
 
   const handleWithdraw = async () => {
     if (!withdrawTarget || withdrawing) return;
-
     const offerId = getOfferId(withdrawTarget);
-
-    if (!offerId) {
-      toast.error("We could not identify this offer.");
-      return;
-    }
-
+    if (!offerId) { toast.error("We could not identify this offer."); return; }
     setWithdrawing(true);
-
     try {
       await withdrawErandOffer(offerId);
-
       toast.success("Your offer has been withdrawn.");
       setWithdrawTarget(null);
-
       await loadOffers({ silent: true });
     } catch (requestError) {
-      toast.error(
-        requestError?.message ||
-          "We could not withdraw this offer. Please try again."
-      );
+      toast.error(requestError?.message || "We could not withdraw this offer. Please try again.");
     } finally {
       setWithdrawing(false);
     }
   };
 
-  const handleResetFilters = () => {
-    setSearchInput("");
-    setSearch("");
-    setStatusFilter("all");
-    setPage(1);
+  const handleReportIssue = (offer) => {
+    const errand = getErrandFromOffer(offer);
+    const errandId = getErrandId(offer);
+    setSupportContext({
+      errandId,
+      errand: Object.keys(errand).length
+        ? errand
+        : {
+            id: errandId,
+            title: getErrandTitle(offer),
+            reference_code: getErrandReference(offer),
+            status: getErrandLifecycleStatus(offer) || "unknown",
+          },
+    });
   };
 
-  /**
-   * Open the dedicated accepted-offer details page.
-   * That route expects an OFFER ID, not an errand ID.
-   */
-  const goToOfferDetails = (offer) => {
+  const handleChatCustomer = async (offer) => {
+    const errandId = getErrandId(offer);
     const offerId = getOfferId(offer);
+    if (!errandId) { toast.error("We couldn't identify the errand for this offer."); return; }
+    const eranderId = user?.id;
+    if (!eranderId) { toast.error("We couldn't identify your account. Please sign in again."); return; }
+    if (typeof openChat !== "function") { toast.error("Chat is not available right now."); return; }
+    if (openingChatOfferId === offerId) return;
+    setOpeningChatOfferId(offerId);
+    try { await openChat({ errandId, eranderId }); } finally { setOpeningChatOfferId(null); }
+  };
 
-    if (!offerId) {
-      toast.error(
-        "We could not identify this offer. Please refresh your offers and try again."
-      );
+  const handleMarkCompleted = async (offer) => {
+    if (typeof onMarkCompleted === "function") {
+      try {
+        await onMarkCompleted(offer);
+        toast.success("Your completion has been submitted for customer review.");
+        await loadOffers({ silent: true });
+      } catch (requestError) {
+        toast.error(requestError?.message || "We could not submit completion. Please try again.");
+      }
       return;
     }
+    const offerId = getOfferId(offer);
+    if (offerId) {
+      toast.info("Open the offer details page to submit your completion for review.");
+      navigate(`/dashboard/my-offers/${encodeURIComponent(offerId)}`);
+    } else {
+      toast.info("Completion submission is not connected on this page yet.");
+    }
+  };
 
+  const handleResetFilters = () => {
+    setSearchInput(""); setSearch(""); setStatusFilter("all"); setPage(1);
+  };
+
+  const goToOfferDetails = (offer) => {
+    const offerId = getOfferId(offer);
+    if (!offerId) {
+      toast.error("We could not identify this offer. Please refresh your offers and try again.");
+      return;
+    }
     navigate(`/dashboard/my-offers/${encodeURIComponent(offerId)}`);
   };
 
-  const goToAvailableErrands = () => {
-    navigate("/dashboard/available-errands");
-  };
+  const goToAvailableErrands = () => navigate("/dashboard/available-errands");
 
-  const showEmptyState =
-    !loading && !error && offers.length === 0;
+  const hasFilters = Boolean(search || statusFilter !== "all");
+  const showEmptyState = !loading && !error && offers.length === 0;
+  const suffix = multiplePages ? " (this page)" : "";
+  const stats = [
+    { label: "Total offers", value: metrics.total },
+    { label: `Awaiting response${suffix}`, value: metrics.pending },
+    { label: `Accepted${suffix}`, value: metrics.accepted },
+    { label: `Closed${suffix}`, value: metrics.closed },
+  ];
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <main className="mx-auto w-full max-w-[1440px] sm:px-6 lg:px-8 lg:py-8">
+          <PageSkeleton />
+        </main>
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>
-      <div className="min-h-full bg-[#f8fafc]">
-        <div className="mx-auto w-full max-w-[1440px] px-4 py-6 sm:px-6 sm:py-8 xl:px-8">
-          <div className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0">
+      <main className="mx-auto w-full max-w-[1440px] space-y-5 sm:px-6 lg:px-8 lg:py-8">
+        <motion.header {...sectionReveal(0)} className={`${CARD} p-5 sm:p-6`}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className={EYEBROW}>Erander workspace</p>
+            <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => navigate("/dashboard")}
-                className="mb-4 inline-flex items-center gap-2 text-sm font-bold text-slate-500 transition hover:text-[#14213d]"
+                onClick={() => loadOffers({ silent: true })}
+                disabled={refreshing}
+                aria-busy={refreshing}
+                aria-label="Refresh offers"
+                className={BTN_GHOST}
               >
-                <ArrowLeft size={16} />
-                Dashboard
+                {refreshing
+                  ? <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+                  : <RefreshCw size={16} aria-hidden="true" />}
+                <span className="hidden sm:inline">Refresh</span>
               </button>
-
-              <div className="flex items-start gap-3">
-                <span className="mt-1 flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#14213d] text-white shadow-sm">
-                  <Send size={23} />
-                </span>
-
-                <div>
-                  <h1 className="text-2xl font-extrabold tracking-tight text-[#14213d] sm:text-3xl">
-                    My Offers
-                  </h1>
-
-                  <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500 sm:text-base">
-                    Track your submitted offers, review your proposed
-                    prices, and see when customers respond.
-                  </p>
-                </div>
-              </div>
+              <button type="button" onClick={goToAvailableErrands} className={BTN_GREEN}>
+                <Search size={16} aria-hidden="true" />
+                <span className="hidden sm:inline">Find errands</span>
+                <span className="sm:hidden">Browse</span>
+              </button>
             </div>
-
-            <button
-              type="button"
-              onClick={() => loadOffers({ silent: true })}
-              disabled={loading || refreshing}
-              className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 self-start rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-[#14213d] shadow-sm transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <RefreshCw
-                size={16}
-                className={refreshing ? "animate-spin" : ""}
-              />
-              Refresh
-            </button>
           </div>
 
-          <section
-            aria-label="Offer summary"
-            className="mb-7 grid grid-cols-2 gap-3 lg:grid-cols-4"
-          >
-            <MetricCard
-              label="Total offers"
-              value={loading ? "—" : metrics.total}
-              icon={FileText}
-              tone="navy"
-            />
+          <div className="mt-5">
+            <h1 className="text-2xl font-extrabold leading-tight tracking-tight text-brand sm:text-3xl">
+              My offers
+            </h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-content-muted">
+              Keep track of the errands you've made offers on, monitor customer responses and manage your submissions.
+            </p>
+          </div>
 
-            <MetricCard
-              label="Awaiting response"
-              value={loading ? "—" : metrics.pending}
-              icon={Clock3}
-              tone="amber"
-            />
+          <dl className="mt-6 grid grid-cols-2 border-t border-line pt-3 sm:grid-cols-4">
+            {stats.map((stat, i) => (
+              <Stat key={stat.label} {...stat} index={i} />
+            ))}
+          </dl>
+        </motion.header>
 
-            <MetricCard
-              label="Accepted"
-              value={loading ? "—" : metrics.accepted}
-              icon={CheckCircle2}
-              tone="green"
-            />
-
-            <MetricCard
-              label="Closed offers"
-              value={loading ? "—" : metrics.closed}
-              icon={XCircle}
-              tone="slate"
-            />
-          </section>
-
-          <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_8px_24px_rgba(20,33,61,0.03)] sm:p-5">
-            <div className="mb-4 flex items-center gap-2">
-              <Filter size={18} className="text-[#15803d]" />
-
-              <h2 className="text-sm font-extrabold text-[#14213d]">
-                Find an offer
-              </h2>
-            </div>
-
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_220px]">
-              <label className="relative block">
-                <Search
-                  size={18}
-                  className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
-                />
-
-                <input
-                  type="search"
-                  value={searchInput}
-                  onChange={(event) =>
-                    setSearchInput(event.target.value)
-                  }
-                  placeholder="Search by errand title or reference..."
-                  aria-label="Search offers"
-                  className="min-h-12 w-full rounded-xl border border-slate-200 bg-white pl-11 pr-4 text-sm text-[#14213d] outline-none transition placeholder:text-slate-400 focus:border-[#20cc88] focus:ring-4 focus:ring-[#20cc88]/10"
-                />
-              </label>
-
-              <label className="relative block">
-                <select
-                  value={statusFilter}
-                  onChange={(event) => {
-                    setStatusFilter(event.target.value);
-                    setPage(1);
-                  }}
-                  aria-label="Filter offers by status"
-                  className="min-h-12 w-full appearance-none rounded-xl border border-slate-200 bg-white px-4 pr-10 text-sm font-semibold text-[#14213d] outline-none transition focus:border-[#20cc88] focus:ring-4 focus:ring-[#20cc88]/10"
+        <motion.section {...sectionReveal(1)} aria-label="Search and filters">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="relative sm:w-96">
+              <label htmlFor="offer-search" className="sr-only">Search offers</label>
+              <Search
+                size={17}
+                className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-content-subtle"
+                aria-hidden="true"
+              />
+              <input
+                id="offer-search"
+                type="search"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder="Search by errand title or reference…"
+                className="min-h-11 w-full rounded-xl border border-line bg-surface-white pl-11 pr-11 text-sm text-content placeholder:text-content-subtle focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
+              />
+              {searchInput ? (
+                <button
+                  type="button"
+                  onClick={() => setSearchInput("")}
+                  aria-label="Clear search"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-content-subtle transition hover:bg-surface-muted hover:text-content"
                 >
-                  {STATUS_OPTIONS.map((option) => (
-                    <option
-                      key={option.value}
-                      value={option.value}
-                    >
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-
-                <ChevronDown
-                  size={17}
-                  className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400"
-                />
-              </label>
+                  <X size={15} aria-hidden="true" />
+                </button>
+              ) : null}
             </div>
-
-            {(search || statusFilter !== "all") && (
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs text-slate-500">
-                  Showing filtered results
-                </p>
-
+            <div className="flex flex-wrap items-center gap-3">
+              <p className="text-sm text-content-muted" aria-live="polite" aria-busy={refreshing}>
+                {refreshing
+                  ? "Updating your offers…"
+                  : `${pagination.total} ${pagination.total === 1 ? "offer" : "offers"} found`}
+              </p>
+              {hasFilters ? (
                 <button
                   type="button"
                   onClick={handleResetFilters}
-                  className="text-xs font-bold text-[#15803d] transition hover:text-[#166534]"
+                  className="inline-flex items-center gap-1.5 text-sm font-bold text-brand underline-offset-4 transition hover:text-success hover:underline"
                 >
-                  Clear filters
+                  <X size={13} aria-hidden="true" /> Reset filters
                 </button>
-              </div>
-            )}
-          </section>
+              ) : null}
+            </div>
+          </div>
+          <div className="mt-4 border-b border-line">
+            <StatusTabs
+              value={statusFilter}
+              onChange={(value) => { setStatusFilter(value); setPage(1); }}
+            />
+          </div>
+        </motion.section>
 
-          <div className="mb-4 flex items-center justify-between gap-3">
+        <motion.section {...sectionReveal(2)} aria-label="Submitted offers">
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
             <div>
-              <h2 className="text-lg font-extrabold text-[#14213d]">
-                Submitted offers
-              </h2>
-
-              <p className="mt-1 text-xs text-slate-500 sm:text-sm">
-                {loading
-                  ? "Loading your offers..."
-                  : `${pagination.total} ${
-                      pagination.total === 1 ? "offer" : "offers"
-                    } found`}
+              <h2 className="text-lg font-extrabold tracking-tight text-content">Your submissions</h2>
+              <p className="mt-1 text-sm leading-6 text-content-muted">
+                Review your proposed prices and each offer's progress.
               </p>
             </div>
-
-            <button
-              type="button"
-              onClick={goToAvailableErrands}
-              className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-[#e9fbf3] px-3.5 text-xs font-extrabold text-[#15803d] transition hover:bg-[#d9f7e9] sm:text-sm"
-            >
-              <Search size={15} />
-              <span className="hidden sm:inline">
-                Find errands
+            {!error && !showEmptyState && offers.length > 0 ? (
+              <span className="text-sm text-content-muted">
+                Showing {offers.length} of {pagination.total}
               </span>
-              <span className="sm:hidden">Browse</span>
-            </button>
+            ) : null}
           </div>
 
-          {loading ? (
-            <div className="space-y-4" aria-label="Loading offers">
-              {Array.from({ length: 3 }).map((_, index) => (
-                <OfferSkeleton key={index} />
-              ))}
-            </div>
-          ) : error ? (
-            <div className="rounded-2xl border border-rose-200 bg-white p-6 text-center sm:p-10">
-              <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-50 text-rose-600">
-                <Info size={25} />
-              </span>
-
-              <h3 className="mt-4 text-lg font-extrabold text-[#14213d]">
-                We couldn't load your offers
-              </h3>
-
-              <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">
-                {error}
-              </p>
-
-              <button
-                type="button"
-                onClick={() => loadOffers()}
-                className="mt-5 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#14213d] px-5 text-sm font-bold text-white transition hover:bg-[#203659]"
+          <AnimatePresence mode="wait" initial={false}>
+            {error ? (
+              <motion.div
+                key="error"
+                {...sectionReveal(0)}
+                className="rounded-2xl border border-rose-200 bg-rose-50 p-6"
+                role="alert"
               >
-                <RefreshCw size={16} />
-                Try again
-              </button>
-            </div>
-          ) : showEmptyState ? (
-            <EmptyState
-              search={search}
-              status={statusFilter}
-              onReset={handleResetFilters}
-              onBrowse={goToAvailableErrands}
-            />
-          ) : (
-            <>
-              <div className="space-y-4">
-                {offers.map((offer, index) => {
-                  const offerId = getOfferId(offer);
-                  const errandId = getErrandId(offer);
-                  const title = getErrandTitle(offer);
-                  const reference = getErrandReference(offer);
-                  const currency = getCurrency(offer);
-                  const status = normalizeStatus(offer.status);
-
-                  const itemTotal = getAmount(
-                    offer,
-                    "proposed_item_total"
-                  );
-
-                  const serviceFee = getAmount(
-                    offer,
-                    "proposed_service_fee"
-                  );
-
-                  const deliveryFee = getAmount(
-                    offer,
-                    "proposed_delivery_fee"
-                  );
-
-                  const otherFees = getAmount(
-                    offer,
-                    "proposed_other_fees"
-                  );
-
-                  const proposedTotal = offer?.proposed_total;
-
-                  const total =
-                    proposedTotal !== undefined &&
-                    proposedTotal !== null &&
-                    proposedTotal !== "" &&
-                    Number.isFinite(Number(proposedTotal))
-                      ? Number(proposedTotal)
-                      : itemTotal +
-                        serviceFee +
-                        deliveryFee +
-                        otherFees;
-
-                  const category =
-                    getErrandFromOffer(offer)?.category ||
-                    offer?.category ||
-                    "";
-
-                  const itemCount = getItemCount(offer);
-                  const submittedAt = getCreatedAt(offer);
-                  const message = getOfferMessage(offer);
-
-                  const errandLifecycleStatus =
-                    getErrandLifecycleStatus(offer);
-
-                  const errandDeleted = isErrandDeleted(offer);
-
-                  return (
-                    <article
-                      key={
-                        offerId ||
-                        `${errandId || "errand"}-${
-                          submittedAt || index
-                        }`
-                      }
-                      className={cn(
-                        "overflow-hidden rounded-2xl border bg-white shadow-[0_8px_24px_rgba(20,33,61,0.035)] transition hover:border-slate-300",
-                        errandDeleted
-                          ? "border-rose-200"
-                          : "border-slate-200"
-                      )}
-                    >
-                      <div className="p-4 sm:p-6">
-                        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                          <div className="flex min-w-0 items-start gap-3">
-                            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#f1f5f9] text-[#14213d]">
-                              {category === "delivery" ||
-                              category === "pickup" ? (
-                                <Truck size={21} />
-                              ) : category === "business_support" ? (
-                                <BriefcaseBusiness size={21} />
-                              ) : (
-                                <Package size={21} />
-                              )}
-                            </span>
-
-                            <div className="min-w-0 flex-1">
-                              <div className="mb-2 flex flex-wrap items-center gap-2">
-                                {reference && (
-                                  <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">
-                                    {reference}
-                                  </span>
-                                )}
-
-                                {category && (
-                                  <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-600">
-                                    <Tag size={11} />
-                                    {CATEGORY_LABELS[category] ||
-                                      category.replaceAll("_", " ")}
-                                  </span>
-                                )}
-                              </div>
-
-                              <h3 className="break-words text-base font-extrabold leading-6 text-[#14213d] sm:text-lg">
-                                {title}
-                              </h3>
-
-                              {submittedAt && (
-                                <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-500">
-                                  <CalendarDays size={14} />
-                                  Submitted{" "}
-                                  {formatDate(submittedAt, true)}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-                            <StatusBadge status={status} />
-
-                            {errandDeleted ? (
-                              <RemovedErrandBadge />
-                            ) : (
-                              status === "accepted" &&
-                              errandLifecycleStatus && (
-                                <ErrandStatusBadge
-                                  status={errandLifecycleStatus}
-                                />
-                              )
-                            )}
-                          </div>
-                        </div>
-
-                        {errandDeleted && (
-                          <RemovedErrandNotice
-                            offerStatus={status}
-                          />
-                        )}
-
-                        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                          <OfferAmount
-                            label="Item budget"
-                            value={itemTotal}
-                            currency={currency}
-                          />
-
-                          <OfferAmount
-                            label="Service fee"
-                            value={serviceFee}
-                            currency={currency}
-                          />
-
-                          <OfferAmount
-                            label="Delivery fee"
-                            value={deliveryFee}
-                            currency={currency}
-                          />
-
-                          <OfferAmount
-                            label="Other fees"
-                            value={otherFees}
-                            currency={currency}
-                          />
-                        </div>
-
-                        <div className="mt-4 flex flex-col gap-3 rounded-xl border border-[#d9f7e9] bg-[#f5fdf8] p-4 sm:flex-row sm:items-center sm:justify-between">
-                          <div className="flex items-center gap-3">
-                            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-[#15803d] shadow-sm">
-                              <Wallet size={19} />
-                            </span>
-
-                            <div>
-                              <p className="text-xs font-semibold text-slate-500">
-                                Your proposed total
-                              </p>
-
-                              <p className="mt-0.5 text-xl font-extrabold tracking-tight text-[#15803d]">
-                                {formatMoney(total, currency)}
-                              </p>
-                            </div>
-                          </div>
-
-                          {itemCount > 0 && (
-                            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500">
-                              <Package size={14} />
-                              {itemCount}{" "}
-                              {itemCount === 1
-                                ? "priced item"
-                                : "priced items"}
-                            </span>
-                          )}
-                        </div>
-
-                        {message && (
-                          <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-4">
-                            <p className="text-xs font-extrabold text-slate-500">
-                              Your message to the customer
-                            </p>
-
-                            <p className="mt-1.5 whitespace-pre-wrap break-words text-sm leading-6 text-slate-600">
-                              {message}
-                            </p>
-                          </div>
-                        )}
-
-                        {status === "accepted" && (
-                          <div className="mt-4 flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-                            <ShieldCheck
-                              size={20}
-                              className="mt-0.5 shrink-0 text-emerald-700"
-                            />
-
-                            <div>
-                              <p className="text-sm font-extrabold text-emerald-800">
-                                Your offer was accepted
-                              </p>
-
-                              <p className="mt-1 text-xs leading-5 text-emerald-700">
-                                {[
-                                  "funded",
-                                  "in_progress",
-                                  "completion_submitted",
-                                  "completed",
-                                ].includes(errandLifecycleStatus)
-                                  ? "The errand has reached the funded stage or beyond. Open the offer details to review the current stage and next steps."
-                                  : errandLifecycleStatus ===
-                                      "awaiting_funding"
-                                    ? "The errand is awaiting funding. Do not begin work until the required funding and next steps are confirmed."
-                                    : errandLifecycleStatus
-                                      ? "Review the current errand status and next steps in the offer details."
-                                      : "Your offer was accepted. Open the offer details to check the errand's funding status and next steps."}
-                              </p>
-                            </div>
-                          </div>
-                        )}
-
-                        {status === "pending" && !errandDeleted && (
-                          <div className="mt-4 flex items-start gap-2 text-xs leading-5 text-slate-500">
-                            <Clock3
-                              size={15}
-                              className="mt-0.5 shrink-0"
-                            />
-
-                            <p>
-                              Your offer is awaiting the customer's
-                              response. Keep your proposed prices and
-                              availability in mind while you wait.
-                            </p>
-                          </div>
-                        )}
-
-                        <div className="mt-5 flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
-                          <button
-                            type="button"
-                            onClick={() => goToOfferDetails(offer)}
-                            disabled={!offerId}
-                            title={
-                              !offerId
-                                ? "The API response does not contain an offer ID."
-                                : "Open offer details and errand history"
-                            }
-                            className="inline-flex min-h-10 items-center justify-center gap-2 self-start text-sm font-bold text-[#14213d] transition hover:text-[#15803d] disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            View offer details
-                            <ArrowRight size={16} />
-                          </button>
-
-                          {canWithdraw(offer) && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setWithdrawTarget(offer)
-                              }
-                              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-rose-200 px-4 text-sm font-bold text-rose-600 transition hover:bg-rose-50"
-                            >
-                              <X size={16} />
-                              Withdraw offer
-                            </button>
-                          )}
-
-                          {status === "accepted" && (
-                            <span className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-emerald-50 px-4 text-sm font-bold text-emerald-700">
-                              <Check size={16} />
-                              Offer accepted
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-
-              {pagination.totalPages > 1 && (
-                <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-sm text-slate-500">
-                    Page{" "}
-                    <span className="font-bold text-[#14213d]">
-                      {page}
-                    </span>{" "}
-                    of{" "}
-                    <span className="font-bold text-[#14213d]">
-                      {pagination.totalPages}
-                    </span>
-                  </p>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setPage((current) =>
-                          Math.max(1, current - 1)
-                        )
-                      }
-                      disabled={page <= 1}
-                      className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 text-sm font-bold text-[#14213d] transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 sm:flex-none"
-                    >
-                      <ArrowLeft size={15} />
-                      Previous
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setPage((current) =>
-                          Math.min(
-                            pagination.totalPages,
-                            current + 1
-                          )
-                        )
-                      }
-                      disabled={page >= pagination.totalPages}
-                      className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 text-sm font-bold text-[#14213d] transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 sm:flex-none"
-                    >
-                      Next
-                      <ArrowRight size={15} />
+                <div className="flex items-start gap-3">
+                  <Info size={18} className="mt-0.5 shrink-0 text-rose-600" aria-hidden="true" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-extrabold text-rose-950">We couldn't load your offers</p>
+                    <p className="mt-1 break-words text-sm leading-6 text-rose-800">{error}</p>
+                    <button type="button" onClick={() => loadOffers()} className={`${BTN_GHOST} mt-4`}>
+                      <RefreshCw size={15} aria-hidden="true" /> Try again
                     </button>
                   </div>
                 </div>
-              )}
-            </>
-          )}
+              </motion.div>
+            ) : showEmptyState ? (
+              <motion.div key="empty" {...sectionReveal(0)}>
+                <EmptyState
+                  search={search}
+                  status={statusFilter}
+                  onReset={handleResetFilters}
+                  onBrowse={goToAvailableErrands}
+                />
+              </motion.div>
+            ) : (
+              <motion.div key="list" {...sectionReveal(0)}>
+                <ul className="space-y-4">
+                  {offers.map((offer, index) => {
+                    const offerId = getOfferId(offer);
+                    return (
+                      <OfferCard
+                        key={offerId || `${getErrandId(offer) || "errand"}-${getCreatedAt(offer) || index}`}
+                        offer={offer}
+                        onOpen={goToOfferDetails}
+                        onWithdraw={setWithdrawTarget}
+                        onReportIssue={handleReportIssue}
+                        onChatCustomer={handleChatCustomer}
+                        onMarkCompleted={handleMarkCompleted}
+                        markCompletedEnabled={Boolean(onMarkCompleted)}
+                        openingChat={Boolean(offerId) && openingChatOfferId === offerId}
+                      />
+                    );
+                  })}
+                </ul>
+                {multiplePages ? (
+                  <nav
+                    aria-label="Offers pagination"
+                    className="mt-6 flex flex-col gap-3 border-t border-line pt-5 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <p className="text-sm text-content-muted">
+                      Page <span className="font-bold text-content">{page}</span> of{" "}
+                      <span className="font-bold text-content">{pagination.totalPages}</span>
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setPage((c) => Math.max(1, c - 1))}
+                        disabled={page <= 1}
+                        className={BTN_GHOST}
+                      >
+                        <ArrowLeft size={14} aria-hidden="true" /> Previous
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPage((c) => Math.min(pagination.totalPages, c + 1))}
+                        disabled={page >= pagination.totalPages}
+                        className={BTN_NAVY}
+                      >
+                        Next <ArrowRight size={14} aria-hidden="true" />
+                      </button>
+                    </div>
+                  </nav>
+                ) : null}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.section>
 
-          <div className="mt-7 flex items-start gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#e9fbf3] text-[#15803d]">
-              <HandCoins size={19} />
-            </span>
+        <motion.div {...sectionReveal(3)}>
+          <Notice tone="success" icon={HandCoins} title="Keep your offers transparent">
+            Make sure your item prices and fees reflect what you intend to charge. Changes to an
+            errand's scope or cost should go through ERANDER's agreed workflow. Offers stay in your
+            history even when a customer removes an errand.
+          </Notice>
+        </motion.div>
+      </main>
 
-            <div>
-              <h3 className="text-sm font-extrabold text-[#14213d]">
-                Keep your offers transparent
-              </h3>
-
-              <p className="mt-1 text-xs leading-5 text-slate-500 sm:text-sm sm:leading-6">
-                Make sure your item prices and fees reflect what you
-                intend to charge. Any agreed changes to the errand's
-                scope or cost should be approved through ERANDER's
-                agreed workflow. Offers remain part of your history
-                even when a customer removes an errand.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <ConfirmationModal
-          open={Boolean(withdrawTarget)}
-          offer={withdrawTarget}
-          busy={withdrawing}
-          onClose={() => {
-            if (!withdrawing) {
-              setWithdrawTarget(null);
-            }
-          }}
-          onConfirm={handleWithdraw}
-        />
-      </div>
+      <WithdrawModal
+        offer={withdrawTarget}
+        busy={withdrawing}
+        onClose={() => setWithdrawTarget(null)}
+        onConfirm={handleWithdraw}
+      />
+      <CreateSupportTicket
+        open={Boolean(supportContext)}
+        onClose={() => setSupportContext(null)}
+        errand={supportContext?.errand}
+        errandId={supportContext?.errandId}
+      />
     </DashboardLayout>
   );
 }

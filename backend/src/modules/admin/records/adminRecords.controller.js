@@ -1,5 +1,6 @@
 import { getDatabasePool } from "../../../config/database.js";
 import { hasAdminPermission } from "../auth/adminPermissions.js";
+import { loadWalletTransactionDetails } from "../../wallets/wallet.controller.js";
 
 /**
  * ERANDER admin read models.
@@ -35,7 +36,7 @@ const DATASETS = {
     accounts: { table: "withdrawal_accounts", permission: "wallets:read", columns: ["id", "profile_id", "payment_provider", "country_code", "currency_code", "bank_name", "bank_code", "account_name", "account_number_last4", "status", "is_default", "verified_at", "created_at", "updated_at"], search: ["id", "profile_id", "bank_name", "account_name", "account_number_last4", "bank_code"], statusColumn: "status", profileRefs: ["profile_id"] },
   },
   withdrawals: {
-    requests: { table: "withdrawal_requests", permission: "wallets:read", columns: ["id", "reference", "profile_id", "wallet_id", "withdrawal_account_id", "currency_code", "amount_minor", "fee_minor", "net_amount_minor", "status", "bank_name_snapshot", "account_name_snapshot", "account_number_last4_snapshot", "provider_transfer_code", "provider_transfer_reference", "rejection_reason", "failure_reason", "reviewed_by", "created_at", "reviewed_at", "processed_at", "completed_at"], search: ["id", "reference", "profile_id", "bank_name_snapshot", "account_name_snapshot", "account_number_last4_snapshot"], statusColumn: "status", profileRefs: ["profile_id", "reviewed_by"] },
+    requests: { table: "withdrawal_requests", permission: "wallets:read", columns: ["id", "reference", "idempotency_key", "profile_id", "wallet_id", "withdrawal_account_id", "currency_code", "amount_minor", "fee_minor", "net_amount_minor", "wallet_transaction_id", "status", "payment_provider", "provider_transfer_reference", "provider_transfer_code", "bank_name_snapshot", "account_name_snapshot", "account_number_last4_snapshot", "provider_recipient_code_snapshot", "reviewed_by", "reviewed_at", "processed_at", "completed_at", "failure_reason", "rejection_reason", "metadata", "created_at", "updated_at"], search: ["id", "reference", "profile_id", "wallet_transaction_id", "bank_name_snapshot", "account_name_snapshot", "account_number_last4_snapshot", "provider_transfer_reference", "provider_transfer_code", "failure_reason", "rejection_reason"], statusColumn: "status", profileRefs: ["profile_id", "reviewed_by"] },
   },
   "security-deposits": {
     accounts: { table: "erander_security_deposit_accounts", permission: "security_deposits:read", columns: ["id", "erander_id", "account_status", "tier", "required_deposit_percent", "deposit_requirement_waived", "waiver_reason", "waived_by", "waived_at", "notes", "created_at", "updated_at"], search: ["id", "erander_id", "account_status", "waiver_reason"], statusColumn: "account_status", profileRefs: ["erander_id", "waived_by"], depositAccountSummary: true },
@@ -54,8 +55,7 @@ const DATASETS = {
     issues: { table: "financial_reconciliation_issues", permission: "reconciliation:read", columns: ["id", "issue_reference", "issue_type", "severity", "status", "currency_code", "payment_provider", "provider_reference", "related_payment_id", "related_withdrawal_request_id", "related_wallet_transaction_id", "related_wallet_id", "description", "resolution_notes", "assigned_to", "resolved_by", "resolved_at", "created_at", "updated_at"], search: ["id", "issue_reference", "issue_type", "provider_reference", "description"], statusColumn: "status", profileRefs: ["assigned_to", "resolved_by"] },
   },
   "audit-logs": {
-    admin_actions: { table: "admin_action_audit_logs", permission: "audit_logs:read", columns: ["id", "actor_id", "action", "entity_type", "entity_id", "reason", "before_data", "after_data", "metadata", "created_at"], search: ["id", "actor_id", "action", "entity_type", "entity_id", "reason"], profileRefs: ["actor_id"] },
-    role_changes: { table: "admin_role_audit_logs", permission: "audit_logs:read", columns: ["id", "target_profile_id", "performed_by", "assignment_id", "role_code", "action", "reason", "created_at"], search: ["id", "target_profile_id", "performed_by", "role_code", "action", "reason"], profileRefs: ["target_profile_id", "performed_by"] },
+    audit_logs: { table: "audit_logs", permission: "audit_logs:read", columns: ["id", "event_category", "actor_id", "target_profile_id", "assignment_id", "action", "entity_type", "entity_id", "role_code", "reason", "before_data", "after_data", "metadata", "created_at"], search: ["id", "event_category", "actor_id", "target_profile_id", "action", "entity_type", "entity_id", "role_code", "reason"], profileRefs: ["actor_id", "target_profile_id"] },
   },
 };
 
@@ -244,6 +244,154 @@ export async function getAdminUserDetails(req, res, next) {
       ]);
     }
     return res.json({ success: true, data: { profile: profile.rows[0], wallets: wallets.rows, withdrawalAccounts: accounts.rows, recentTransactions: transactions.rows } });
+  } catch (error) { return next(error); }
+}
+
+
+const ADMIN_TRANSACTION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** Full, read-only investigation view for financial transaction records. */
+export async function getAdminTransactionDetails(req, res, next) {
+  const { transactionId } = req.params;
+  const kind = String(req.query.kind || "wallet").trim().toLowerCase();
+  const permissionByKind = {
+    wallet: "wallets:read",
+    "security-deposit": "security_deposits:read",
+    reservation: "security_deposits:read",
+    claim: "security_deposits:read",
+    payment: "finance:read",
+    refund: "finance:read",
+    settlement: "finance:read",
+    withdrawal: "wallets:read",
+  };
+  const permission = permissionByKind[kind];
+  if (!permission) return res.status(400).json({ success: false, message: "Unsupported transaction type." });
+  if (!hasAdminPermission(req.admin, permission)) return res.status(403).json({ success: false, message: "You do not have permission to inspect this transaction." });
+  if (!ADMIN_TRANSACTION_ID_PATTERN.test(transactionId || "")) return res.status(400).json({ success: false, message: "A valid transaction ID is required." });
+
+  try {
+    const pool = getDatabasePool();
+    let transaction = null;
+    let details = {};
+
+    if (kind === "wallet") {
+      const result = await pool.query("SELECT * FROM public.wallet_transactions WHERE id=$1::uuid LIMIT 1", [transactionId]);
+      transaction = result.rows[0] || null;
+      if (transaction) details = await loadWalletTransactionDetails(pool, transaction);
+    } else if (kind === "withdrawal") {
+      const result = await pool.query("SELECT * FROM public.withdrawal_requests WHERE id=$1::uuid LIMIT 1", [transactionId]);
+      transaction = result.rows[0] || null;
+      if (transaction?.wallet_transaction_id) {
+        const walletResult = await pool.query("SELECT * FROM public.wallet_transactions WHERE id=$1::uuid LIMIT 1", [transaction.wallet_transaction_id]);
+        if (walletResult.rows[0]) {
+          details = await loadWalletTransactionDetails(pool, walletResult.rows[0]);
+          details.walletTransaction = walletResult.rows[0];
+        }
+      }
+    } else if (kind === "security-deposit") {
+      const result = await pool.query("SELECT * FROM public.erander_security_deposit_transactions WHERE id=$1::uuid LIMIT 1", [transactionId]);
+      transaction = result.rows[0] || null;
+      if (transaction) {
+        if (transaction.wallet_transaction_id) {
+          const walletResult = await pool.query("SELECT * FROM public.wallet_transactions WHERE id=$1::uuid LIMIT 1", [transaction.wallet_transaction_id]);
+          if (walletResult.rows[0]) {
+            details = await loadWalletTransactionDetails(pool, walletResult.rows[0]);
+            details.walletTransaction = walletResult.rows[0];
+          }
+        }
+        if (transaction.reservation_id) {
+          const [reservation, claims] = await Promise.all([
+            pool.query("SELECT * FROM public.erander_security_deposit_reservations WHERE id=$1::uuid LIMIT 1", [transaction.reservation_id]),
+            pool.query("SELECT * FROM public.erander_security_deposit_claims WHERE reservation_id=$1::uuid ORDER BY created_at ASC", [transaction.reservation_id]),
+          ]);
+          details.reservation = reservation.rows[0] || null;
+          details.claims = claims.rows;
+        }
+      }
+    } else if (kind === "reservation") {
+      const result = await pool.query("SELECT * FROM public.erander_security_deposit_reservations WHERE id=$1::uuid LIMIT 1", [transactionId]);
+      transaction = result.rows[0] || null;
+      if (transaction) {
+        const [claims, depositTransactions, errand] = await Promise.all([
+          pool.query("SELECT * FROM public.erander_security_deposit_claims WHERE reservation_id=$1::uuid ORDER BY created_at ASC", [transactionId]),
+          pool.query("SELECT * FROM public.erander_security_deposit_transactions WHERE reservation_id=$1::uuid ORDER BY created_at ASC", [transactionId]),
+          pool.query("SELECT id,reference_code,title,status,category,currency_code,estimated_total,requested_by,assigned_erander_id,created_at,updated_at FROM public.erands WHERE id=$1::uuid LIMIT 1", [transaction.erand_id]),
+        ]);
+        details = { claims: claims.rows, securityDepositTransactions: depositTransactions.rows, errand: errand.rows[0] || null };
+      }
+    } else if (kind === "claim") {
+      const result = await pool.query("SELECT * FROM public.erander_security_deposit_claims WHERE id=$1::uuid LIMIT 1", [transactionId]);
+      transaction = result.rows[0] || null;
+      if (transaction) {
+        const [reservation, depositTransactions, errand] = await Promise.all([
+          pool.query("SELECT * FROM public.erander_security_deposit_reservations WHERE id=$1::uuid LIMIT 1", [transaction.reservation_id]),
+          pool.query("SELECT * FROM public.erander_security_deposit_transactions WHERE reservation_id=$1::uuid ORDER BY created_at ASC", [transaction.reservation_id]),
+          pool.query("SELECT id,reference_code,title,status,category,currency_code,estimated_total,requested_by,assigned_erander_id,created_at,updated_at FROM public.erands WHERE id=$1::uuid LIMIT 1", [transaction.erand_id]),
+        ]);
+        details = { reservation: reservation.rows[0] || null, securityDepositTransactions: depositTransactions.rows, errand: errand.rows[0] || null };
+      }
+    } else if (kind === "payment") {
+      const result = await pool.query("SELECT * FROM public.erand_payments WHERE id=$1::uuid LIMIT 1", [transactionId]);
+      transaction = result.rows[0] || null;
+      if (transaction) {
+        const [refunds, events, confirmations, errand] = await Promise.all([
+          pool.query("SELECT * FROM public.erand_refunds WHERE payment_id=$1::uuid ORDER BY created_at ASC", [transactionId]),
+          pool.query("SELECT * FROM public.erand_payment_events WHERE payment_id=$1::uuid ORDER BY created_at ASC", [transactionId]),
+          pool.query("SELECT to_jsonb(pc) AS record FROM public.erand_payment_confirmations pc WHERE pc.payment_id=$1::uuid ORDER BY pc.created_at ASC", [transactionId]),
+          pool.query("SELECT id,reference_code,title,status,category,currency_code,estimated_total,requested_by,assigned_erander_id,created_at,updated_at FROM public.erands WHERE id=$1::uuid LIMIT 1", [transaction.erand_id]),
+        ]);
+        details = { refunds: refunds.rows, paymentEvents: events.rows, paymentConfirmations: confirmations.rows.map((item) => item.record), errand: errand.rows[0] || null };
+      }
+    } else if (kind === "refund") {
+      const result = await pool.query("SELECT * FROM public.erand_refunds WHERE id=$1::uuid LIMIT 1", [transactionId]);
+      transaction = result.rows[0] || null;
+      if (transaction) {
+        const payment = await pool.query("SELECT * FROM public.erand_payments WHERE id=$1::uuid LIMIT 1", [transaction.payment_id]);
+        details.payment = payment.rows[0] || null;
+        if (payment.rows[0]) {
+          const [events, confirmations, siblings] = await Promise.all([
+            pool.query("SELECT * FROM public.erand_payment_events WHERE payment_id=$1::uuid ORDER BY created_at ASC", [transaction.payment_id]),
+            pool.query("SELECT to_jsonb(pc) AS record FROM public.erand_payment_confirmations pc WHERE pc.payment_id=$1::uuid ORDER BY pc.created_at ASC", [transaction.payment_id]),
+            pool.query("SELECT * FROM public.erand_refunds WHERE payment_id=$1::uuid ORDER BY created_at ASC", [transaction.payment_id]),
+          ]);
+          details.paymentEvents = events.rows;
+          details.paymentConfirmations = confirmations.rows.map((item) => item.record);
+          details.relatedRefunds = siblings.rows;
+        }
+      }
+    } else if (kind === "settlement") {
+      const result = await pool.query("SELECT * FROM public.erand_settlements WHERE id=$1::uuid LIMIT 1", [transactionId]);
+      transaction = result.rows[0] || null;
+      if (transaction) {
+        const errand = await pool.query("SELECT id,reference_code,title,status,category,currency_code,estimated_total,requested_by,assigned_erander_id,created_at,updated_at FROM public.erands WHERE id=$1::uuid LIMIT 1", [transaction.erand_id]);
+        details.errand = errand.rows[0] || null;
+      }
+    }
+
+    if (!transaction) return res.status(404).json({ success: false, message: "Transaction not found." });
+
+    const auditEntityIds = [transactionId];
+    if (kind === "withdrawal" && transaction?.wallet_transaction_id) {
+      auditEntityIds.push(transaction.wallet_transaction_id);
+    }
+    const [audit, ledger] = await Promise.all([
+      pool.query("SELECT id,event_category,actor_id,target_profile_id,assignment_id,action,entity_type,entity_id,role_code,reason,before_data,after_data,metadata,created_at FROM public.audit_logs WHERE entity_id = ANY($1::text[]) ORDER BY created_at ASC", [auditEntityIds]),
+      kind === "wallet"
+        ? pool.query("SELECT transaction_id,account_id,entry_side,amount_minor,currency_code,description FROM public.wallet_ledger_entries WHERE transaction_id=$1::uuid", [transactionId])
+        : kind === "withdrawal" && transaction?.wallet_transaction_id
+          ? pool.query("SELECT transaction_id,account_id,entry_side,amount_minor,currency_code,description FROM public.wallet_ledger_entries WHERE transaction_id=$1::uuid", [transaction.wallet_transaction_id])
+          : Promise.resolve({ rows: [] }),
+    ]);
+
+    return res.json({
+      success: true,
+      data: {
+        kind,
+        transaction,
+        details: { ...details, ledgerEntries: details.ledgerEntries || ledger.rows, adminAudit: audit.rows },
+        communications: { available: false, message: "The supplied v5 backend does not expose a transaction-linked messaging model. No unrelated private messages are included." },
+      },
+    });
   } catch (error) { return next(error); }
 }
 

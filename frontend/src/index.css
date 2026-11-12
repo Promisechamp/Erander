@@ -10,9 +10,14 @@
   ========================================= */
 
   --erander-navy: #14213d;
-  --erander-green: #20cc88;
-  --erander-mint: #35d07f;
-  --erander-pale: #e9fbf3;
+  --erander-navy-deep: #0f1a30;
+  --erander-navy-soft: #1e2f52;
+
+  /* Professional green — deeper than before */
+  --erander-green: #0e9f6e;
+  --erander-green-hover: #0b8560;
+  --erander-mint: #10b981;
+  --erander-pale: #e6f7ef;
 
   /* =========================================
      SURFACES
@@ -47,9 +52,16 @@
      SEMANTIC COLORS
   ========================================= */
 
-  --erander-success: #15803d;
-  --erander-success-dark: #166534;
-  --erander-success-soft: #e9fbf3;
+  --erander-success: #0e9f6e;
+  --erander-success-dark: #0b7a55;
+  --erander-success-soft: #e6f7ef;
+
+  --erander-warning: #d97706;
+  --erander-warning-soft: #fef3c7;
+  --erander-danger: #dc2626;
+  --erander-danger-soft: #fef2f2;
+  --erander-info: #2563eb;
+  --erander-info-soft: #eff6ff;
 
   /* =========================================
      TYPOGRAPHY
@@ -64,11 +76,24 @@
   --container-erander: 1440px;
 
   /* =========================================
+     RADIUS
+  ========================================= */
+
+  --radius-card: 1rem;
+  --radius-block: 0.75rem;
+  --radius-pill: 999px;
+
+  /* =========================================
      SHADOWS
   ========================================= */
 
   --shadow-erander-card: 0 12px 32px rgb(20 33 61 / 7%);
   --shadow-erander-card-hover: 0 18px 42px rgb(20 33 61 / 11%);
+  --shadow-erander-pop: 0 8px 24px rgb(20 33 61 / 10%);
+
+  /* Focus ring — use as plain CSS, NOT as Tailwind opacity modifier */
+  --ring-green: 0 0 0 4px rgb(14 159 110 / 0.12);
+  --ring-navy: 0 0 0 4px rgb(20 33 61 / 0.08);
 }
 
 @layer base {
@@ -76,49 +101,21 @@
     scroll-behavior: smooth;
     scroll-padding-top: 6rem;
   }
-		
-		
-		
-		
-		
-		/* Firefox */
-* {
-  scrollbar-width: none;
-}
 
-/* IE / legacy Edge */
-* {
-  -ms-overflow-style: none;
-}
-
-/* Chrome, Safari, Edge (Chromium), Opera */
-*::-webkit-scrollbar {
-  display: none;
-  width: 0;
-  height: 0;
-}
-
-/* Also cover the document/root in case it's styled separately */
-html,
-body {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-
-html::-webkit-scrollbar,
-body::-webkit-scrollbar {
-  display: none;
-}
-		
-		
-		
-		
-		
-		
+  /* Hide scrollbars globally */
+    * {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  *::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
 
   body {
     margin: 0;
-    background-color: var(--erander-white);
+    background-color: var(--erander-surface);
     color: var(--erander-text);
     font-family: var(--font-erander);
     -webkit-font-smoothing: antialiased;
@@ -138,9 +135,10 @@ body::-webkit-scrollbar {
   }
 
   button:focus-visible,
-  a:focus-visible {
+  a:focus-visible,
+  input:focus-visible {
     outline: 2px solid var(--erander-green);
-    outline-offset: 4px;
+    outline-offset: 2px;
   }
 
   ::selection {
@@ -158,7 +156,7 @@ body::-webkit-scrollbar {
 
   .erander-card {
     border: 1px solid var(--erander-border);
-    border-radius: 1rem;
+    border-radius: var(--radius-card);
     background: var(--erander-white);
     box-shadow: var(--shadow-erander-card);
     transition:
@@ -166,9 +164,93 @@ body::-webkit-scrollbar {
       border-color 200ms ease,
       transform 200ms ease;
   }
-
   .erander-card:hover {
     box-shadow: var(--shadow-erander-card-hover);
+  }
+
+  /* --- LOCKED DESIGN PATTERN: Use these everywhere --- */
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full px-5 py-3 text-sm font-bold text-white transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50;
+    background-color: var(--erander-navy);
+  }
+  .btn-primary:hover {
+    background-color: var(--erander-navy-deep);
+  }
+
+  .btn-green {
+    @apply inline-flex items-center justify-center gap-2 rounded-full px-5 py-3 text-sm font-bold text-white transition active:scale-[0.98] disabled:opacity-50;
+    background-color: var(--erander-green);
+  }
+  .btn-green:hover {
+    background-color: var(--erander-green-hover);
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full border bg-white px-4 py-2.5 text-sm font-bold transition disabled:opacity-50;
+    border-color: var(--erander-border);
+    color: var(--erander-text);
+  }
+  .btn-secondary:hover {
+    background-color: var(--erander-surface);
+  }
+
+  .btn-danger-soft {
+    @apply inline-flex items-center justify-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-bold text-rose-700 transition hover:bg-rose-100;
+  }
+
+  .page-hero {
+    @apply relative overflow-hidden rounded-[1.5rem] px-6 py-8 text-white sm:px-8 sm:py-10;
+    background-color: var(--erander-navy);
+  }
+
+  /* FIXED: No focus:ring-[var()]/10 here — uses plain box-shadow below */
+  .input-pill {
+    @apply h-[52px] w-full rounded-full border pl-11 pr-11 text-sm outline-none transition;
+    border-color: var(--erander-border);
+    background-color: var(--erander-surface);
+    color: var(--erander-text);
+  }
+  .input-pill::placeholder {
+    color: var(--erander-text-subtle);
+  }
+  .input-pill:focus {
+    border-color: var(--erander-green);
+    background-color: var(--erander-white);
+    box-shadow: var(--ring-green);
+  }
+
+  .filter-pill {
+    @apply shrink-0 rounded-full px-4 py-2.5 text-[13px] font-bold transition;
+  }
+  .filter-pill-active {
+    @apply text-white shadow-sm;
+    background-color: var(--erander-navy);
+  }
+  .filter-pill-inactive {
+    @apply border bg-white transition;
+    border-color: var(--erander-border);
+    color: var(--erander-text-muted);
+  }
+  .filter-pill-inactive:hover {
+    border-color: var(--erander-border-strong);
+    background-color: var(--erander-surface);
+    color: var(--erander-text);
+  }
+
+  .section-title {
+    @apply text-[17px] font-extrabold tracking-tight;
+    color: var(--erander-text);
+  }
+  .section-subtitle {
+    @apply mt-0.5 text-[13px];
+    color: var(--erander-text-muted);
+  }
+
+  .stat-card {
+    @apply rounded-2xl border bg-white p-5;
+    border-color: var(--erander-border);
+    box-shadow: var(--shadow-erander-card);
   }
 }
 

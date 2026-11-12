@@ -14,7 +14,7 @@ export default function TextDialog({ data, onClose }) {
       subtitle="Full value"
       description=""
       size="md"
-      position="bottom"
+      position="center"
       height="auto"
       headerTone="navy"
       zIndex={120}
@@ -24,6 +24,7 @@ export default function TextDialog({ data, onClose }) {
           <pre className="max-h-[55vh] overflow-auto whitespace-pre-wrap break-words rounded-2xl bg-surface-muted/60 p-4 font-mono text-xs leading-6 text-content">
             {data.text}
           </pre>
+										
 
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
             <button type="button" onClick={onClose} className={BTN_GHOST}>

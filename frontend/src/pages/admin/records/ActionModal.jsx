@@ -52,9 +52,9 @@ export default function ActionModal({
       onClose={onClose}
       title={title}
       subtitle="Administrator action"
-      description="Every supported action is checked by the backend and recorded with the acting administrator."
+     // description="Every supported action is checked by the backend and recorded with the acting administrator."
       size="lg"
-      position="bottom"
+      position="center"
       height="auto"
       headerTone="navy"
       zIndex={90}

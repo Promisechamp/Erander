@@ -5,7 +5,7 @@ export default function AdminWalletsPage() {
 		<AdminRecordsPage
 			section="wallets"
 			title="Wallet administration"
-			description="Inspect every user's wallet balances, linked bank and withdrawal accounts, and the immutable wallet transaction history. Open a user to see their full wallet and bank-account profile."
+			//description="Inspect every user's wallet balances, linked bank and withdrawal accounts, and the immutable wallet transaction history. Open a user to see their full wallet and bank-account profile."
 			datasets={[
 				{ value: "wallets", label: "Wallet balances" },
 				{ value: "accounts", label: "Bank / withdrawal accounts" },

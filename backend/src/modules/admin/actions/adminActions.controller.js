@@ -35,7 +35,7 @@ function adminSupabase(req) {
 
 async function writeAudit(client, req, { action, entityType, entityId, reason, before = {}, after = {}, metadata = {} }) {
   await client.query(
-    `INSERT INTO public.admin_action_audit_logs
+    `INSERT INTO public.audit_logs
        (actor_id, action, entity_type, entity_id, reason, before_data, after_data, metadata)
      VALUES ($1::uuid, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb)`,
     [req.admin.id, action, entityType, String(entityId), reason, JSON.stringify(before), JSON.stringify(after), JSON.stringify(metadata)]
@@ -199,7 +199,7 @@ export async function reviewSecurityDepositClaim(req, res) {
     });
     if (error) return fail(res, 409, rpcError(error), "SECURITY_CLAIM_REVIEW_REJECTED");
     await getDatabasePool().query(
-      `INSERT INTO public.admin_action_audit_logs (actor_id, action, entity_type, entity_id, reason, after_data)
+      `INSERT INTO public.audit_logs (actor_id, action, entity_type, entity_id, reason, after_data)
        VALUES ($1::uuid, $2, 'security_deposit_claim', $3, $4, $5::jsonb)`,
       [req.admin.id, `security_deposit.claim.${decision}`, claimId, reason, JSON.stringify({ decision, approvedAmountMinor })]
     );
@@ -215,7 +215,7 @@ export async function settleSecurityDepositClaim(req, res) {
     const { data, error } = await adminSupabase(req).rpc("settle_erander_security_deposit_claim", { p_claim_id: claimId });
     if (error) return fail(res, 409, rpcError(error), "SECURITY_CLAIM_SETTLEMENT_REJECTED");
     await getDatabasePool().query(
-      `INSERT INTO public.admin_action_audit_logs (actor_id, action, entity_type, entity_id, reason, after_data)
+      `INSERT INTO public.audit_logs (actor_id, action, entity_type, entity_id, reason, after_data)
        VALUES ($1::uuid, 'security_deposit.claim.settled', 'security_deposit_claim', $2, 'Settlement through approved security-deposit claim workflow', $3::jsonb)`,
       [req.admin.id, claimId, JSON.stringify({ transactionId: data })]
     );
@@ -235,7 +235,7 @@ export async function releaseSecurityDepositReservation(req, res) {
     });
     if (error) return fail(res, 409, rpcError(error), "SECURITY_DEPOSIT_RELEASE_REJECTED");
     await getDatabasePool().query(
-      `INSERT INTO public.admin_action_audit_logs (actor_id, action, entity_type, entity_id, reason, after_data)
+      `INSERT INTO public.audit_logs (actor_id, action, entity_type, entity_id, reason, after_data)
        VALUES ($1::uuid, 'security_deposit.reservation.released', 'security_deposit_reservation', $2, $3, $4::jsonb)`,
       [req.admin.id, reservationId, reason, JSON.stringify({ transactionId: data })]
     );
@@ -255,7 +255,7 @@ export async function runFinancialReconciliation(req, res) {
     });
     if (error) return fail(res, 409, rpcError(error), "RECONCILIATION_RUN_REJECTED");
     await getDatabasePool().query(
-      `INSERT INTO public.admin_action_audit_logs (actor_id, action, entity_type, entity_id, reason, after_data)
+      `INSERT INTO public.audit_logs (actor_id, action, entity_type, entity_id, reason, after_data)
        VALUES ($1::uuid, 'finance.reconciliation.started', 'reconciliation_run', $2, 'Administrator initiated financial reconciliation', $3::jsonb)`,
       [req.admin.id, String(data), JSON.stringify({ runType, currencyCode })]
     );
@@ -307,11 +307,11 @@ export async function listAdminActionAuditLogs(req, res, next) {
   }
   try {
     const pool = getDatabasePool();
-    const count = await pool.query(`SELECT COUNT(*)::bigint AS total FROM public.admin_action_audit_logs ${where}`, values);
+    const count = await pool.query(`SELECT COUNT(*)::bigint AS total FROM public.audit_logs ${where}`, values);
     const total = Number(count.rows[0]?.total || 0);
     const result = await pool.query(
       `SELECT id, actor_id, action, entity_type, entity_id, reason, before_data, after_data, metadata, created_at
-         FROM public.admin_action_audit_logs ${where}
+         FROM public.audit_logs ${where}
         ORDER BY created_at DESC LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
       [...values, limit, (page - 1) * limit]
     );

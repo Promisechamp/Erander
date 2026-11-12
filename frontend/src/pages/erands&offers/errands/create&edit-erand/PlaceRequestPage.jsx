@@ -24,13 +24,12 @@ export default function PlaceRequestPage() {
       createdErrand?.errand?.id ??
       createdErrand?.erand?.id;
 
-    if (errandId) {
-      navigate(`/dashboard/erands/${encodeURIComponent(errandId)}`, {
-        replace: true,
-      });
-    } else {
-      navigate("/dashboard/erands", { replace: true });
-    }
+    navigate(
+      errandId
+        ? `/dashboard/erands/${encodeURIComponent(errandId)}`
+        : "/dashboard/erands",
+      { replace: true }
+    );
   }
 
   return (

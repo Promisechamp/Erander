@@ -21,6 +21,8 @@ const FUNDED_OR_LATER = new Set([
   "disputed",
 ]);
 
+const MAX_OFFERS = 100;
+
 /* -------------------------------------------------------
    HELPERS
 ------------------------------------------------------- */
@@ -46,6 +48,23 @@ function formatStatus(status) {
   return String(status)
     .replaceAll("_", " ")
     .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+/**
+ * Mirrors the sanitizer used inside ErrandRequestForm so a stored value
+ * like `2.8`, `99.9` or `150` from an old record never leaks into the
+ * input on first load. Always yields a whole-number string 1..100,
+ * or "" when nothing usable was stored.
+ */
+function sanitizeMaxOffers(rawValue) {
+  const integerPart = String(rawValue ?? "")
+    .split(/[.,]/)[0]
+    .replace(/\D/g, "");
+
+  if (integerPart === "") return "";
+
+  const parsed = parseInt(integerPart, 10);
+  return String(Math.min(MAX_OFFERS, Math.max(1, parsed)));
 }
 
 /* Funded if the status says so, or any funding signal is on the record. */
@@ -98,7 +117,7 @@ function recordToInitialValues(record) {
       customer_notes: record.customer_notes || "",
       scheduled_for: toLocalInput(record.scheduled_for),
       expires_at: toLocalInput(record.expires_at),
-      max_erander_offers: String(record.max_erander_offers ?? 5),
+      max_erander_offers: sanitizeMaxOffers(record.max_erander_offers ?? 5),
     },
     items: existingItems.map((item) => ({
       item_name: item.item_name || "",
@@ -311,7 +330,7 @@ export default function EditErrandPage() {
         }}
         editable={editable}
         lockedMessage={lockedMessage}
-        currency={errand.currency_code || "NGN"}
+        currency={errand.currency_code || "USD"}
         onSubmit={handleSubmit}
         onCancel={goToDetails}
         backLabel="Back to errand details"

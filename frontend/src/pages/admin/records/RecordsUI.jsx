@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { Copy, UserRound, X } from "lucide-react";
 
 import { BTN_GHOST } from "./recordsStyles";
@@ -284,6 +285,18 @@ export function StatCard({ label, value, hint, tone = "default" }) {
   );
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
 export function Popover({
   icon: Icon,
   label,
@@ -294,32 +307,94 @@ export function Popover({
   disabled = false,
 }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef(null);
+  const [pos, setPos] = useState(null); // { top, left } in viewport coords
+  const triggerRef = useRef(null);
+  const panelRef = useRef(null);
 
+  // Measure the trigger + panel and place the panel in the viewport.
+  const place = useCallback(() => {
+    const trigger = triggerRef.current;
+    const panel = panelRef.current;
+    if (!trigger || !panel) return;
+
+    const rect = trigger.getBoundingClientRect();
+    const panelWidth = panel.offsetWidth;
+    const panelHeight = panel.offsetHeight;
+    const GAP = 8;
+    const MARGIN = 8;
+
+    // Horizontal: align=right => panel's left edge lines up with trigger's left edge.
+    let left = align === "right" ? rect.left : rect.right - panelWidth;
+    left = Math.min(
+      Math.max(MARGIN, left),
+      window.innerWidth - panelWidth - MARGIN
+    );
+
+    // Vertical: below by default, flip above if it would overflow.
+    let top = rect.bottom + GAP;
+    const overflowsBottom =
+      top + panelHeight + MARGIN > window.innerHeight;
+    const fitsAbove = rect.top - GAP - panelHeight >= MARGIN;
+    if (overflowsBottom && fitsAbove) top = rect.top - GAP - panelHeight;
+
+    setPos({ top, left });
+  }, [align]);
+
+  // Place before paint so it never flashes at 0,0.
+  useLayoutEffect(() => {
+    if (!open) {
+      setPos(null);
+      return;
+    }
+    place();
+  }, [open, place]);
+
+  // Reposition when the panel's size changes (async children, images, etc.)
+  useEffect(() => {
+    if (!open || !panelRef.current) return undefined;
+    const observer = new ResizeObserver(() => place());
+    observer.observe(panelRef.current);
+    return () => observer.disconnect();
+  }, [open, place]);
+
+  // Outside-click, Escape, and reflow handling.
   useEffect(() => {
     if (!open) return undefined;
 
     const onPointerDown = (event) => {
-      if (ref.current && !ref.current.contains(event.target)) setOpen(false);
+      if (
+        triggerRef.current?.contains(event.target) ||
+        panelRef.current?.contains(event.target)
+      ) {
+        return;
+      }
+      setOpen(false);
     };
     const onKeyDown = (event) => {
       if (event.key === "Escape") setOpen(false);
     };
+    const onReflow = () => place();
 
     document.addEventListener("mousedown", onPointerDown);
     document.addEventListener("touchstart", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("resize", onReflow);
+    // capture=true so scroll on any inner container also repositions
+    window.addEventListener("scroll", onReflow, true);
 
     return () => {
       document.removeEventListener("mousedown", onPointerDown);
       document.removeEventListener("touchstart", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("resize", onReflow);
+      window.removeEventListener("scroll", onReflow, true);
     };
-  }, [open]);
+  }, [open, place]);
 
   return (
-    <div ref={ref} className="relative">
+    <>
       <button
+        ref={triggerRef}
         type="button"
         disabled={disabled}
         onClick={() => setOpen((previous) => !previous)}
@@ -337,20 +412,39 @@ export function Popover({
         ) : null}
       </button>
 
-      {open ? (
-        <div
-          className={`absolute ${
-            align === "left" ? "left-0" : "right-0"
-          } top-full z-30 mt-2 ${width} max-w-[calc(100vw-2rem)] rounded-2xl border border-line bg-surface-white p-2 shadow-[0_16px_45px_rgba(9,20,38,0.16)]`}
-        >
-          {typeof children === "function"
-            ? children(() => setOpen(false))
-            : children}
-        </div>
-      ) : null}
-    </div>
+      {open && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              ref={panelRef}
+              role="dialog"
+              style={{
+                top: pos ? pos.top : -9999,
+                left: pos ? pos.left : -9999,
+                visibility: pos ? "visible" : "hidden",
+              }}
+              className={`fixed z-[99999] ${width} max-w-[calc(100vw-1rem)] rounded-2xl border border-line bg-surface-white p-2 shadow-[0_16px_45px_rgba(9,20,38,0.16)]`}
+            >
+              {typeof children === "function"
+                ? children(() => setOpen(false))
+                : children}
+            </div>,
+            document.body
+          )
+        : null}
+    </>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
 
 export function SkeletonRows() {
   return (

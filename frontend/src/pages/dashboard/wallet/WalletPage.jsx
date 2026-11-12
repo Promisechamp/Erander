@@ -11,9 +11,7 @@ import {
   ChevronDown,
   ChevronRight,
   Clock3,
-  Copy,
   CreditCard,
-  ExternalLink,
   Eye,
   EyeOff,
   Flag,
@@ -32,6 +30,8 @@ import DashboardLayout from "@/components/layout/DashboardLayout";
 import Modal from "@/components/Modal";
 import Select from "@/components/Select";
 
+import WalletTransactionModal from "./WalletTransactionModal";
+
 import * as walletApi from "@/services/wallet/walletApi";
 import {
   addWithdrawalAccount,
@@ -39,6 +39,7 @@ import {
   createWithdrawalRequest,
   getMyWithdrawals,
   getWalletOverview,
+  getWalletTransaction,
   getWithdrawalAccounts,
   getWithdrawalBanks,
   initializeWalletDeposit,
@@ -77,15 +78,6 @@ const TYPE_ICONS = {
   withdrawal: ArrowUpRight,
   refund: RotateCcw,
   reservation: LockKeyhole,
-};
-
-const TYPE_LABELS = {
-  deposit: "Deposit",
-  errand_payment: "Errand payment",
-  errand_earning: "Errand earning",
-  withdrawal: "Withdrawal",
-  refund: "Refund",
-  reservation: "Reservation",
 };
 
 const REPORT_REASONS = [
@@ -464,17 +456,6 @@ function TransactionRow({ transaction, currency, onOpen, hidden }) {
   );
 }
 
-function DetailLine({ label, children }) {
-  return (
-    <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-3">
-      <dt className="text-sm text-content-muted">{label}</dt>
-      <dd className="min-w-0 max-w-[65%] break-words text-right text-sm font-semibold text-content">
-        {children}
-      </dd>
-    </div>
-  );
-}
-
 /* -------------------------------------------------------------------------- */
 /*                                    PAGE                                    */
 /* -------------------------------------------------------------------------- */
@@ -513,10 +494,18 @@ export default function WalletPage() {
   const [balanceHidden, setBalanceHidden] = useState(false);
 
   const [activeTransaction, setActiveTransaction] = useState(null);
+  const [fallbackRequest, setFallbackRequest] = useState(null);
+  const [transactionDetails, setTransactionDetails] = useState(null);
+  const [transactionDetailsLoading, setTransactionDetailsLoading] =
+    useState(false);
+  const [transactionDetailsError, setTransactionDetailsError] = useState("");
   const [reportReason, setReportReason] = useState("");
   const [reportDetails, setReportDetails] = useState("");
   const [reporting, setReporting] = useState(false);
   const [verifying, setVerifying] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+
+  const detailsRequest = useRef(0);
 
   const selectedWallet = overview.selectedWallet;
   const isNgn = currency === "NGN";
@@ -642,14 +631,52 @@ export default function WalletPage() {
     setPage(1);
   }
 
-  function openTransaction(transaction) {
+  /* ------------------------- Transaction details ------------------------- */
+
+  /**
+   * options.request: the withdrawal request, when opened from the Withdrawals
+   * list. It lets the modal show the status and reason even if the full
+   * history can't be loaded.
+   */
+  async function openTransaction(transaction, { request = null } = {}) {
+    const requestId = ++detailsRequest.current;
+
     setActiveTransaction(transaction);
+    setFallbackRequest(request);
+    setTransactionDetails(null);
+    setTransactionDetailsError("");
     setModal("transaction");
+
+    if (!transaction.id) {
+      setTransactionDetailsLoading(false);
+      return;
+    }
+
+    setTransactionDetailsLoading(true);
+
+    try {
+      const result = await getWalletTransaction(transaction.id);
+      if (requestId !== detailsRequest.current) return;
+      setTransactionDetails(result || null);
+    } catch (error) {
+      if (requestId !== detailsRequest.current) return;
+      setTransactionDetailsError(
+        error?.message || "Unable to load the full transaction details."
+      );
+    } finally {
+      if (requestId === detailsRequest.current)
+        setTransactionDetailsLoading(false);
+    }
   }
 
   function closeTransaction() {
+    detailsRequest.current += 1;
     setModal("");
     setActiveTransaction(null);
+    setFallbackRequest(null);
+    setTransactionDetails(null);
+    setTransactionDetailsError("");
+    setTransactionDetailsLoading(false);
   }
 
   function goToErrand(errandId) {
@@ -662,16 +689,6 @@ export default function WalletPage() {
     setReportReason("");
     setReportDetails("");
     setModal("report");
-  }
-
-  async function copyReference(reference) {
-    if (!reference) return;
-    try {
-      await navigator.clipboard.writeText(String(reference));
-      toast.success("Reference copied");
-    } catch {
-      toast.error("Couldn't copy the reference");
-    }
   }
 
   async function verifyPendingDeposit(reference) {
@@ -689,6 +706,22 @@ export default function WalletPage() {
       );
     } finally {
       setVerifying(false);
+    }
+  }
+
+  async function cancelFromDetails(id) {
+    setCancelling(true);
+    try {
+      await cancelWithdrawal(id);
+      toast.success(
+        "Withdrawal cancelled. Reserved funds have been returned to your available balance."
+      );
+      closeTransaction();
+      await refresh({ quiet: true });
+    } catch (error) {
+      toast.error(error.message || "Unable to cancel withdrawal.");
+    } finally {
+      setCancelling(false);
     }
   }
 
@@ -726,6 +759,8 @@ export default function WalletPage() {
       setReporting(false);
     }
   }
+
+  /* ----------------------------- Money actions ---------------------------- */
 
   async function submitDeposit(event) {
     event.preventDefault();
@@ -865,19 +900,9 @@ export default function WalletPage() {
   const mask = (value) =>
     balanceHidden ? "••••••" : formatMoney(value, currency);
 
-  const tx = activeTransaction;
-  const txIncoming = tx?.direction === "credit";
-  const txReserved = tx?.direction === "reserved";
-  const txCanVerify =
-    tx?.type === "deposit" && tx?.status === "pending" && tx?.providerReference;
-  const reportValid = Boolean(reportReason) && reportDetails.trim().length >= 10;
-
-  /* Defensive: prevent any parent/global keydown or pointer handler from
-     intercepting interaction inside modals. */
-  const stopModalPropagation = {
-    onKeyDown: (e) => e.stopPropagation(),
-    onPointerDown: (e) => e.stopPropagation(),
-  };
+  const tx = transactionDetails?.transaction || activeTransaction;
+  const reportValid =
+    Boolean(reportReason) && reportDetails.trim().length >= 10;
 
   return (
     <DashboardLayout>
@@ -1055,8 +1080,8 @@ export default function WalletPage() {
                   Transactions
                 </h2>
                 <p className="mt-0.5 text-sm text-content-muted">
-                  Tap a transaction to see its details, open its errand, or
-                  report a problem.
+                  Tap a transaction to see its status, reason, details, open
+                  its errand, or report a problem.
                 </p>
 
                 <div
@@ -1246,7 +1271,8 @@ export default function WalletPage() {
                   Withdrawals
                 </h2>
                 <p className="mt-0.5 text-sm text-content-muted">
-                  Reviewed by ERANDER Finance before a transfer starts.
+                  Reviewed by ERANDER Finance before a transfer starts. Tap one
+                  to see its progress and any reason.
                 </p>
 
                 <div className="mt-4">
@@ -1273,24 +1299,56 @@ export default function WalletPage() {
                           key={item.id}
                           className="flex items-center justify-between gap-3 py-3.5 first:pt-0 last:pb-0"
                         >
-                          <div className="flex min-w-0 items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openTransaction(
+                                {
+                                  id: item.wallet_transaction_id,
+                                  type: "withdrawal",
+                                  direction: "debit",
+                                  amount: item.amount,
+                                  currency: item.currency_code,
+                                  status: item.status,
+                                  reference: item.reference,
+                                  description: `Withdrawal ${
+                                    item.reference || "request"
+                                  }`,
+                                  createdAt: item.created_at,
+                                },
+                                { request: item }
+                              )
+                            }
+                            className="flex min-w-0 flex-1 items-center gap-3 rounded-xl text-left transition hover:bg-surface-muted/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                          >
                             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-surface-muted text-brand">
                               <ArrowUpRight size={17} aria-hidden="true" />
                             </span>
 
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-bold tabular-nums text-content">
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-bold tabular-nums text-content">
                                 {formatMoney(item.amount, item.currency_code)}
-                              </p>
-                              <p className="truncate text-xs text-content-muted">
+                              </span>
+                              <span className="block truncate text-xs text-content-muted">
                                 {item.bank_name_snapshot} · ••••{" "}
                                 {item.account_number_last4_snapshot}
-                              </p>
-                              <p className="mt-0.5 text-[11px] text-content-subtle">
-                                {formatDate(item.created_at)}
-                              </p>
-                            </div>
-                          </div>
+                              </span>
+                              <span className="mt-0.5 block text-[11px] text-content-subtle">
+                                {formatDate(item.created_at)} · Ref:{" "}
+                                {item.reference}
+                              </span>
+                              {item.failure_reason || item.rejection_reason ? (
+                                <span className="mt-1 block line-clamp-2 text-[11px] font-semibold text-rose-700">
+                                  {item.failure_reason || item.rejection_reason}
+                                </span>
+                              ) : null}
+                            </span>
+                            <ChevronRight
+                              size={16}
+                              className="mr-1 shrink-0 text-content-subtle"
+                              aria-hidden="true"
+                            />
+                          </button>
 
                           <div className="flex shrink-0 flex-col items-end gap-1.5">
                             <StatusBadge status={item.status} />
@@ -1330,148 +1388,43 @@ export default function WalletPage() {
         </div>
       </main>
 
-      {/* TRANSACTION DETAILS MODAL */}
-      <Modal
-        isOpen={modal === "transaction" && Boolean(tx)}
+      {/* TRANSACTION DETAILS (stays open underneath the report dialog) */}
+      <WalletTransactionModal
+        open={(modal === "transaction" || modal === "report") && Boolean(tx)}
+        transaction={tx}
+        details={transactionDetails?.details}
+        fallbackRequest={fallbackRequest}
+        loading={transactionDetailsLoading}
+        error={transactionDetailsError}
+        currency={currency}
+        verifying={verifying}
+        cancelling={cancelling}
+        toast={toast}
         onClose={closeTransaction}
-        title="Transaction details"
-        description={tx ? tx.description : ""}
-        size="sm"
-      >
-        {tx ? (
-          <div className="space-y-5" {...stopModalPropagation}>
-            <div className="rounded-2xl bg-brand px-5 py-5 text-white">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm text-white/70">
-                  {TYPE_LABELS[tx.type] || "Transaction"}
-                </p>
-                <StatusBadge status={tx.status} />
-              </div>
-
-              <p className="mt-2 break-words text-3xl font-extrabold tracking-tight tabular-nums">
-                {txIncoming ? "+" : txReserved ? "" : "−"}
-                {formatMoney(tx.amount, tx.currency || currency)}
-              </p>
-            </div>
-
-            <dl className="divide-y divide-line-soft border-y border-line-soft">
-              <DetailLine label="Date">{formatDate(tx.createdAt)}</DetailLine>
-
-              {tx.completedAt ? (
-                <DetailLine label="Completed">
-                  {formatDate(tx.completedAt)}
-                </DetailLine>
-              ) : null}
-
-              <DetailLine label="Direction">
-                {txIncoming
-                  ? "Money in"
-                  : txReserved
-                    ? "Held in reserve"
-                    : "Money out"}
-              </DetailLine>
-
-              {tx.paymentProvider ? (
-                <DetailLine label="Provider">
-                  <span className="capitalize">{tx.paymentProvider}</span>
-                </DetailLine>
-              ) : null}
-
-              <DetailLine label="Reference">
-                <span className="inline-flex max-w-full items-center gap-2">
-                  <span className="min-w-0 break-all">{tx.reference}</span>
-                  <button
-                    type="button"
-                    onClick={() => copyReference(tx.reference)}
-                    aria-label="Copy reference"
-                    className="shrink-0 rounded-full p-1.5 text-content-muted transition hover:bg-surface-muted hover:text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
-                  >
-                    <Copy size={14} aria-hidden="true" />
-                  </button>
-                </span>
-              </DetailLine>
-            </dl>
-
-            {tx.relatedErandId ? (
-              <div className="flex items-start gap-3 rounded-r-2xl border-l-4 border-brand-green bg-brand-pale p-4">
-                <Package
-                  size={18}
-                  className="mt-0.5 shrink-0 text-success-dark"
-                  aria-hidden="true"
-                />
-                <div className="min-w-0">
-                  <p className="text-sm font-extrabold text-brand">
-                    Linked to an errand
-                  </p>
-                  <p className="mt-1 text-xs leading-5 text-success-dark">
-                    This transaction is part of an errand. Open it to see the
-                    offer, items and activity.
-                  </p>
-                </div>
-              </div>
-            ) : null}
-
-            <div className="space-y-3">
-              {tx.relatedErandId ? (
-                <button
-                  type="button"
-                  onClick={() => goToErrand(tx.relatedErandId)}
-                  className={PRIMARY_BUTTON}
-                >
-                  <ExternalLink size={16} aria-hidden="true" />
-                  View errand
-                </button>
-              ) : null}
-
-              {txCanVerify ? (
-                <button
-                  type="button"
-                  disabled={verifying}
-                  onClick={() => verifyPendingDeposit(tx.providerReference)}
-                  className={tx.relatedErandId ? SECONDARY_BUTTON : PRIMARY_BUTTON}
-                >
-                  {verifying ? (
-                    <Loader2
-                      className="animate-spin"
-                      size={16}
-                      aria-hidden="true"
-                    />
-                  ) : (
-                    <RefreshCw size={16} aria-hidden="true" />
-                  )}
-                  Verify with Paystack
-                </button>
-              ) : null}
-
-              <button
-                type="button"
-                onClick={openReport}
-                className={SECONDARY_BUTTON}
-              >
-                <Flag size={16} aria-hidden="true" />
-                Report a problem
-              </button>
-            </div>
-          </div>
-        ) : null}
-      </Modal>
+        onRetry={() =>
+          activeTransaction &&
+          openTransaction(activeTransaction, { request: fallbackRequest })
+        }
+        onVerify={verifyPendingDeposit}
+        onViewErrand={goToErrand}
+        onCancelWithdrawal={cancelFromDetails}
+        onReport={openReport}
+      />
 
       {/* REPORT MODAL */}
       <Modal
         isOpen={modal === "report" && Boolean(tx)}
-        onClose={() => {
-          if (!reporting) setModal("transaction");
-        }}
+        onClose={() => setModal("transaction")}
+        dismissible={!reporting}
+        icon={Flag}
+        tone="warning"
         title="Report a transaction"
         description="Tell us what looks wrong. Our team will review it."
+								position="bottom"
         size="sm"
       >
         {tx ? (
-          <form
-            onSubmit={submitReport}
-            className="space-y-5"
-            {...stopModalPropagation}
-          >
+          <form onSubmit={submitReport} className="space-y-5">
             <div className="flex items-center justify-between gap-3 rounded-2xl bg-surface-muted/60 p-4">
               <div className="min-w-0">
                 <p className="truncate text-sm font-bold text-content">
@@ -1564,11 +1517,7 @@ export default function WalletPage() {
         description="Fund your NGN wallet securely through Paystack."
         size="sm"
       >
-        <form
-          onSubmit={submitDeposit}
-          className="space-y-5"
-          {...stopModalPropagation}
-        >
+        <form onSubmit={submitDeposit} className="space-y-5">
           <div>
             <label
               htmlFor="deposit-amount"
@@ -1647,11 +1596,7 @@ export default function WalletPage() {
         description="Verify the account with Paystack before saving it."
         size="sm"
       >
-        <form
-          onSubmit={verifyBankDetails}
-          className="space-y-5"
-          {...stopModalPropagation}
-        >
+        <form onSubmit={verifyBankDetails} className="space-y-5">
           <div>
             <span className="mb-2 block text-sm font-bold text-content">
               Bank
@@ -1751,11 +1696,7 @@ export default function WalletPage() {
         description="Your request will be reviewed before a bank transfer is initiated."
         size="sm"
       >
-        <form
-          onSubmit={submitWithdrawal}
-          className="space-y-5"
-          {...stopModalPropagation}
-        >
+        <form onSubmit={submitWithdrawal} className="space-y-5">
           <div>
             <div className="mb-2 flex items-baseline justify-between gap-3">
               <label

@@ -4,7 +4,7 @@ export default function AdminErrandsPage() {
 		<AdminRecordsPage
 			section="errands"
 			title="Errand operations"
-			description="Monitor marketplace errands and control whether new offers can be submitted before an agreement is locked."
+			//description="Monitor marketplace errands and control whether new offers can be submitted before an agreement is locked."
 			datasets={[{ value: "erands", label: "Errands" }]}
 			initialDataset="erands"
 			statusOptions={[

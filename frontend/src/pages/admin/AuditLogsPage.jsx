@@ -1,17 +1,14 @@
 import AdminRecordsPage from "./RecordsPage";
+
 export default function AdminAuditLogsPage() {
-	return (
-		<AdminRecordsPage
-			section="audit-logs"
-			title="Administrator audit logs"
-			description="Review immutable administrator action records and administrator-role assignment history."
-			datasets={[
-				{ value: "admin_actions", label: "Admin actions" },
-				{ value: "role_changes", label: "Admin role changes" },
-			]}
-			initialDataset="admin_actions"
-			statusOptions={[]}
-			//note="This audit workspace includes the general action audit trail introduced by the v3 migration and the existing immutable role-assignment audit log."
-		/>
-	);
+  return (
+    <AdminRecordsPage
+      section="audit-logs"
+      title="Audit logs"
+      //description="Review immutable administrator actions, role assignments and other recorded administrative events in one chronological audit trail."
+      datasets={[{ value: "audit_logs", label: "All audit activity" }]}
+      initialDataset="audit_logs"
+      statusOptions={[]}
+    />
+  );
 }

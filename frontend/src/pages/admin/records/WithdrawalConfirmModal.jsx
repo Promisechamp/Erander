@@ -31,7 +31,7 @@ export default function WithdrawalConfirmModal({
       subtitle="Withdrawal"
       description={row?.reference || ""}
       size="md"
-      position="bottom"
+      position="center"
       height="auto"
       headerTone="navy"
       zIndex={95}

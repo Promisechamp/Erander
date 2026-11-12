@@ -9,12 +9,19 @@ if (!supabaseUrl || !supabasePublishableKey) {
   );
 }
 
-const supabase = createClient(supabaseUrl, supabasePublishableKey, {
+const authOptions = {
   auth: {
     autoRefreshToken: false,
     persistSession: false,
     detectSessionInUrl: false,
   },
-});
+};
+
+const supabase = createClient(supabaseUrl, supabasePublishableKey, authOptions);
+
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+export const supabaseAdmin = serviceRoleKey
+  ? createClient(supabaseUrl, serviceRoleKey, authOptions)
+  : null;
 
 export default supabase;

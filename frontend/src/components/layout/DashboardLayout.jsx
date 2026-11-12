@@ -19,8 +19,10 @@ X,
 LogOut,
 ChevronDown,
 ShieldCheck,
+MessageCircle,
 Wallet,
 Shield,
+Heart,
 } from "lucide-react";
 
 import { useAuth } from "@/contexts/AuthContext";
@@ -48,6 +50,16 @@ path: "/dashboard/my-offers",
 icon: ShoppingCart,
 },
 {
+label: "Favorite erranders",
+path: "/dashboard/favorite-erranders",
+icon: Heart,
+},
+{
+label: "Messages",
+path: "/chat",
+icon: MessageCircle,
+},
+{
 label: "My wallet",
 path: "/dashboard/wallet",
 icon: Wallet,
@@ -64,7 +76,7 @@ icon: UserRound,
 },
 ];
 
-export default function DashboardLayout( {children} ) {
+export default function DashboardLayout({ children, title = "Dashboard", description = "Manage your activities on ERANDER." }) {
 const navigate = useNavigate();
 const { user, signOut } = useAuth();
 
@@ -256,11 +268,11 @@ className="h-10 w-auto object-contain"
 
           <div className="min-w-0">
             <h1 className="truncate text-lg font-extrabold text-[#14213D] sm:text-xl">
-              Dashboard
+              {title}
             </h1>
 
             <p className="mt-0.5 hidden truncate text-xs text-slate-500 sm:block">
-              Manage your activities on ERANDER.
+              {description}
             </p>
           </div>
         </div>

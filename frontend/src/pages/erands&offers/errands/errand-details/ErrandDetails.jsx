@@ -1,15 +1,30 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
+  AlertCircle,
+  ArrowRight,
   Check,
-  Clock3,
+  CheckCircle2,
+  Copy,
+  Hourglass,
+  Inbox,
+  LifeBuoy,
+		Plus,
+  Loader2,
   MessageCircle,
   Pencil,
+  RefreshCw,
+  ShieldCheck,
   UserCheck,
   UserRound,
   Users,
+  Wallet,
+  XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
+
+import { useChat } from "@/contexts/ChatContext";
+import { updateErrandChatPreference } from "@/services/chat/chatApi";
 
 import ActionMenu from "@/components/ActionMenu";
 import { getErrandById } from "@/services/errands/errandsApi";
@@ -20,24 +35,28 @@ import {
   initializePayment,
 } from "@/services/payments/paymentsApi";
 
-import ProgressTracker from "../../shared/ProgressTracker";
-import { BudgetMonitor } from "../../shared/ErrandTools";
 import {
-  ActionBanner,
+  getFavoriteErranders,
+  addFavoriteErander,
+} from "@/services/favorites/favoriteErrandersApi";
+
+import ProgressTracker from "../../shared/ProgressTracker";
+import StatusBadge from "../../shared/StatusBadge";
+import { BudgetMonitor } from "../../shared/ErrandTools";
+
+import CreateSupportTicket from "@/pages/support/CreateSupportTicket";
+
+import {
   ActivitySection,
-  BackButton,
   EMPTY_RELEASE,
   ErrandError,
-  ErrandHeader,
   ErrandLayout,
-  ErrandLoading,
   ErrandPage,
   FundingSection,
   FundReleaseSection,
   InformationSection,
   ItemsSection,
   OverviewSection,
-  PartialErrorNotice,
   PersonCard,
   PriceCard,
   ProposalSection,
@@ -56,6 +75,10 @@ import {
 } from "../../shared/ErrandView";
 
 import FundErrandModal from "../FundErrandModal";
+
+/* -------------------------------------------------------------------------- */
+/*                                  CONSTANTS                                 */
+/* -------------------------------------------------------------------------- */
 
 const ROLE = "customer";
 
@@ -85,6 +108,26 @@ const ASSIGNED_STATUSES = [
   "completed",
   "disputed",
 ];
+
+const BTN =
+  "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
+
+const BTN_GREEN = `${BTN} bg-brand-green text-brand shadow-sm hover:brightness-95 active:scale-[0.98]`;
+
+const BTN_NAVY = `${BTN} bg-brand text-content-inverse shadow-sm hover:opacity-90 active:scale-[0.98]`;
+
+const BTN_GHOST = `${BTN} border border-line bg-surface-white text-content hover:border-brand/20 hover:bg-surface-muted`;
+
+const NEXT_TONE = {
+  success: "bg-brand-pale text-success-dark",
+  attention: "bg-amber-50 text-amber-700",
+  danger: "bg-rose-50 text-rose-600",
+  neutral: "bg-surface-muted text-content-muted",
+};
+
+/* -------------------------------------------------------------------------- */
+/*                                   HELPERS                                  */
+/* -------------------------------------------------------------------------- */
 
 export function canEditErrand(errand) {
   if (!errand) return false;
@@ -128,6 +171,464 @@ export function canEditErrand(errand) {
   return true;
 }
 
+/* -------------------------------------------------------------------------- */
+/*                               SHARED STYLES                                */
+/* -------------------------------------------------------------------------- */
+
+const CARD =
+  "rounded-2xl border border-line bg-surface-white shadow-[0_2px_12px_rgba(20,33,61,0.035)]";
+
+const EYEBROW =
+  "text-[10px] font-extrabold uppercase tracking-[0.16em] text-content-subtle";
+
+/* -------------------------------------------------------------------------- */
+/*                               SKELETON LOADER                              */
+/* -------------------------------------------------------------------------- */
+
+function Bone({ className = "" }) {
+  return (
+    <div
+      aria-hidden="true"
+      className={`relative isolate overflow-hidden rounded-lg bg-surface-muted ${className}`}
+    >
+      <span className="absolute inset-0 -translate-x-full animate-[bone-shine_1.7s_ease-in-out_infinite] bg-gradient-to-r from-transparent via-white/80 to-transparent" />
+    </div>
+  );
+}
+
+function SkeletonCard({ className = "", children }) {
+  return (
+    <div
+      aria-hidden="true"
+      className={`${CARD} p-5 sm:p-6 ${className}`}
+    >
+      {children}
+    </div>
+  );
+}
+
+function ErandDetailsSkeleton() {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+      className="space-y-5"
+    >
+      <span className="sr-only">Loading your errand details</span>
+
+      {/* Page heading */}
+      <div className="space-y-3">
+        <Bone className="h-3 w-24" />
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="min-w-0 flex-1 space-y-3">
+            <Bone className="h-8 w-2/3 max-w-md sm:h-10" />
+            <Bone className="h-4 w-full max-w-sm" />
+          </div>
+
+          <div className="flex gap-2">
+            <Bone className="h-10 w-24 rounded-xl" />
+            <Bone className="h-10 w-10 rounded-xl sm:w-28" />
+          </div>
+        </div>
+      </div>
+
+      {/* Main overview */}
+      <SkeletonCard className="overflow-hidden p-0">
+        <div className="border-b border-line px-5 py-5 sm:px-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Bone className="h-4 w-32" />
+            <Bone className="h-7 w-24 rounded-full" />
+          </div>
+          <Bone className="mt-4 h-7 w-1/2 max-w-xs" />
+          <Bone className="mt-2 h-3 w-40" />
+        </div>
+
+        <div className="grid grid-cols-2 divide-x divide-y divide-line sm:grid-cols-4 sm:divide-y-0">
+          {[0, 1, 2, 3].map((item) => (
+            <div key={item} className="space-y-3 p-4 sm:p-5">
+              <Bone className="h-3 w-20" />
+              <Bone className="h-5 w-28 max-w-full" />
+              {item === 1 ? <Bone className="h-1.5 w-full" /> : null}
+            </div>
+          ))}
+        </div>
+      </SkeletonCard>
+
+      {/* Next action */}
+      <SkeletonCard>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-start gap-4">
+            <Bone className="h-11 w-11 shrink-0 rounded-xl" />
+            <div className="min-w-0 flex-1 space-y-2.5">
+              <Bone className="h-3 w-20" />
+              <Bone className="h-5 w-56 max-w-full" />
+              <Bone className="h-3.5 w-full max-w-lg" />
+            </div>
+          </div>
+          <Bone className="h-11 w-32 rounded-xl" />
+        </div>
+      </SkeletonCard>
+
+      {/* Progress */}
+      <SkeletonCard>
+        <div className="flex items-center justify-between gap-3">
+          <div className="space-y-2">
+            <Bone className="h-4 w-32" />
+            <Bone className="h-3 w-48 max-w-full" />
+          </div>
+          <Bone className="h-7 w-20 rounded-full" />
+        </div>
+
+        <div className="mt-7 flex items-center">
+          {[0, 1, 2, 3, 4].map((item) => (
+            <div key={item} className="flex flex-1 items-center">
+              <Bone className="h-8 w-8 shrink-0 rounded-full" />
+              {item !== 4 ? (
+                <Bone className="mx-2 h-1 flex-1 rounded-full" />
+              ) : null}
+            </div>
+          ))}
+        </div>
+      </SkeletonCard>
+
+      {/* Chat settings */}
+      <SkeletonCard>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <Bone className="h-10 w-10 shrink-0 rounded-xl" />
+            <div className="space-y-2">
+              <Bone className="h-4 w-32" />
+              <Bone className="h-3.5 w-64 max-w-full" />
+            </div>
+          </div>
+          <Bone className="h-10 w-36 rounded-xl" />
+        </div>
+      </SkeletonCard>
+
+      {/* Main content and sidebar */}
+      <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="min-w-0 space-y-4">
+          <SkeletonCard className="p-0">
+            <div className="flex gap-6 overflow-hidden border-b border-line px-5 py-4">
+              {[0, 1, 2, 3, 4].map((item) => (
+                <Bone key={item} className="h-4 w-16 shrink-0" />
+              ))}
+            </div>
+            <div className="space-y-5 p-5 sm:p-6">
+              <div className="space-y-2">
+                <Bone className="h-3 w-20" />
+                <Bone className="h-6 w-52 max-w-full" />
+              </div>
+              <div className="space-y-2.5">
+                <Bone className="h-3.5 w-full" />
+                <Bone className="h-3.5 w-11/12" />
+                <Bone className="h-3.5 w-2/3" />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Bone className="h-24 rounded-xl" />
+                <Bone className="h-24 rounded-xl" />
+              </div>
+            </div>
+          </SkeletonCard>
+        </div>
+
+        <div className="hidden space-y-4 xl:block">
+          {[0, 1, 2].map((item) => (
+            <SkeletonCard key={item} className="space-y-4">
+              <Bone className="h-4 w-32" />
+              <div className="flex items-center gap-3">
+                <Bone className="h-11 w-11 rounded-full" />
+                <div className="flex-1 space-y-2">
+                  <Bone className="h-4 w-28" />
+                  <Bone className="h-3 w-20" />
+                </div>
+              </div>
+              <Bone className="h-3 w-full" />
+              <Bone className="h-10 w-full rounded-xl" />
+            </SkeletonCard>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex items-center justify-center gap-2 py-2 text-xs font-semibold text-content-subtle">
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-green" />
+        Preparing your errand details
+      </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                               SMALL COMPONENTS                             */
+/* -------------------------------------------------------------------------- */
+
+function Stat({ label, value, progress }) {
+  return (
+    <div className="min-w-0 px-4 py-4 sm:px-5">
+      <dt className="text-[10px] font-extrabold uppercase tracking-[0.13em] text-content-subtle">
+        {label}
+      </dt>
+
+      <dd className="mt-2 flex min-h-6 min-w-0 items-center gap-2 text-sm font-extrabold tabular-nums text-content sm:text-base">
+        {value}
+      </dd>
+
+      {typeof progress === "number" ? (
+        <div
+          className="mt-3 h-1.5 overflow-hidden rounded-full bg-line"
+          role="progressbar"
+          aria-label={label}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(progress)}
+        >
+          <div
+            className="h-full rounded-full bg-brand-green transition-[width] duration-700"
+            style={{
+              width: `${Math.min(100, Math.max(0, progress))}%`,
+            }}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ErrandHeaderCard({
+  errand,
+  subtitle,
+  stats,
+  actions,
+  copied,
+  refreshing,
+  onCopy,
+  onRefresh,
+  onHelp,
+}) {
+  return (
+    <section className={`${CARD} overflow-hidden`}>
+      <div className="p-5 sm:p-7">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-2 rounded-lg bg-surface-muted px-3 py-1.5 text-xs font-extrabold text-content">
+              <span className="h-1.5 w-1.5 rounded-full bg-brand-green" />
+              ERRAND DETAILS
+            </span>
+
+            {errand.reference_code ? (
+              <span className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface-white px-3 py-1.5 text-xs font-bold text-content-muted">
+                {errand.reference_code}
+
+                {errand.id ? (
+                  <button
+                    type="button"
+                    onClick={onCopy}
+                    aria-label="Copy errand ID"
+                    title="Copy errand ID"
+                    className="inline-flex h-5 w-5 items-center justify-center rounded-md transition hover:bg-surface-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                  >
+                    {copied ? (
+                      <Check size={12} strokeWidth={3} aria-hidden="true" />
+                    ) : (
+                      <Copy size={12} aria-hidden="true" />
+                    )}
+                  </button>
+                ) : null}
+              </span>
+            ) : null}
+
+            {errand.created_at ? (
+              <span className="text-xs font-medium text-content-subtle">
+                Created {formatDateTime(errand.created_at)}
+              </span>
+            ) : null}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={refreshing}
+              aria-label="Refresh errand"
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-line bg-surface-white px-3 text-sm font-bold text-content-muted transition hover:bg-surface-muted hover:text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-60"
+            >
+              <RefreshCw
+                size={15}
+                aria-hidden="true"
+                className={refreshing ? "animate-spin" : ""}
+              />
+              <span className="hidden sm:inline">Refresh</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={onHelp}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-line bg-surface-white px-3 text-sm font-bold text-content-muted transition hover:bg-surface-muted hover:text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+            >
+              <LifeBuoy size={15} aria-hidden="true" />
+              <span className="hidden sm:inline">Get help</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="break-words text-2xl font-extrabold leading-tight tracking-tight text-brand sm:text-3xl lg:text-[2.15rem]">
+                {errand.title || "Errand details"}
+              </h1>
+              <StatusBadge status={errand.status} />
+            </div>
+
+            {subtitle ? (
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-content-muted">
+                {subtitle}
+              </p>
+            ) : null}
+          </div>
+        </div>
+
+        {actions ? (
+          <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-line pt-5">
+            {actions}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="border-t border-line bg-surface-muted/40">
+        <dl className="grid grid-cols-2 divide-x divide-y divide-line sm:grid-cols-4 sm:divide-y-0">
+          {stats.map((stat) => (
+            <Stat key={stat.label} {...stat} />
+          ))}
+        </dl>
+      </div>
+    </section>
+  );
+}
+
+function NextStepCard({ step }) {
+  if (!step) return null;
+
+  const Icon = step.icon;
+  const ActionIcon = step.action?.icon;
+
+  return (
+    <section
+      aria-label="Next step"
+      className={`${CARD} relative overflow-hidden p-5 sm:p-6`}
+    >
+      <div className="absolute bottom-0 left-0 top-0 w-1 bg-brand-green" />
+
+      <div className="flex flex-col gap-4 pl-1 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-start gap-4">
+          <span
+            className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${NEXT_TONE[step.tone]}`}
+          >
+            <Icon size={21} strokeWidth={2.2} aria-hidden="true" />
+          </span>
+
+          <div className="min-w-0">
+            <p className={EYEBROW}>YOUR NEXT STEP</p>
+
+            <h2 className="mt-1 text-base font-extrabold tracking-tight text-content sm:text-lg">
+              {step.title}
+            </h2>
+
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-content-muted">
+              {step.text}
+            </p>
+          </div>
+        </div>
+
+        {step.action ? (
+          <button
+            type="button"
+            onClick={step.action.onClick}
+            className={`${BTN_GREEN} shrink-0`}
+          >
+            {ActionIcon ? (
+              <ActionIcon size={16} aria-hidden="true" />
+            ) : null}
+            {step.action.label}
+            <ArrowRight size={15} aria-hidden="true" />
+          </button>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function ChatPermissionCard({ allowed, saving, onToggle }) {
+  return (
+    <section className={`${CARD} p-5 sm:p-6`}>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface-muted text-brand">
+            <MessageCircle size={19} aria-hidden="true" />
+          </span>
+
+          <div className="min-w-0">
+            <h2 className="text-sm font-extrabold text-content">
+              Chat permissions
+            </h2>
+
+            <p className="mt-1 max-w-xl text-sm leading-6 text-content-muted">
+              {allowed
+                ? "Eranders who have offered on this errand can start a conversation with you."
+                : "Eranders cannot start a new conversation for this errand. Existing chats can continue."}
+            </p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          disabled={saving}
+          onClick={onToggle}
+          className={`${allowed ? BTN_GHOST : BTN_NAVY} shrink-0`}
+        >
+          {saving ? (
+            <Loader2
+              size={15}
+              className="animate-spin"
+              aria-hidden="true"
+            />
+          ) : null}
+
+          {saving
+            ? "Saving changes"
+            : allowed
+              ? "Stop new chats"
+              : "Allow new chats"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function SoftNotice({ children }) {
+  return (
+    <div
+      role="alert"
+      className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3.5"
+    >
+      <AlertCircle
+        size={18}
+        className="mt-0.5 shrink-0 text-amber-700"
+        aria-hidden="true"
+      />
+
+      <p className="min-w-0 flex-1 text-sm leading-6 text-amber-900">
+        {children} Some of the latest errand information may not be available.
+      </p>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                    PAGE                                    */
+/* -------------------------------------------------------------------------- */
+
 export default function ErandDetails({
   errandId: suppliedErrandId,
   onFundNow,
@@ -135,6 +636,9 @@ export default function ErandDetails({
 }) {
   const params = useParams();
   const navigate = useNavigate();
+  const { openChat } = useChat();
+
+  const [chatPreferenceSaving, setChatPreferenceSaving] = useState(false);
 
   const errandId =
     suppliedErrandId || params.errandId || params.erandId || params.id;
@@ -148,9 +652,23 @@ export default function ErandDetails({
   const [refreshing, setRefreshing] = useState(false);
   const [releaseLoading, setReleaseLoading] = useState(false);
   const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
 
   const [tab, setTab] = useState("overview");
   const [fundOpen, setFundOpen] = useState(false);
+		
+		const [supportOpen, setSupportOpen] = useState(false);
+  const [supportErrand, setSupportErrand] = useState(null);
+		
+		const [isFavoriteErander, setIsFavoriteErander] = useState(false);
+  const [favoriteSaving, setFavoriteSaving] = useState(false);
+  const [favoriteLoading, setFavoriteLoading] = useState(false);
+		
+		
+		
+  /* ------------------------------------------------------------------------ */
+  /*                               DATA LOADING                               */
+  /* ------------------------------------------------------------------------ */
 
   const loadErrand = useCallback(
     async ({ silent = false } = {}) => {
@@ -172,8 +690,6 @@ export default function ErandDetails({
         if (!errandData) {
           throw new Error("The server did not return the requested errand.");
         }
-
-        setErrand(errandData);
 
         const [offersResult, fundingResult, releaseResult] =
           await Promise.allSettled([
@@ -205,30 +721,38 @@ export default function ErandDetails({
               : matchedFromOffers;
           }
         } else {
-          console.error("Unable to retrieve errand offers:", offersResult.reason);
+          console.error(
+            "Unable to retrieve errand offers:",
+            offersResult.reason
+          );
         }
 
-        setAcceptedOffer(selectedOffer);
+        let nextFunding = null;
 
         if (fundingResult.status === "fulfilled") {
-          setFunding(unwrapFundingResponse(fundingResult.value));
+          nextFunding = unwrapFundingResponse(fundingResult.value);
         } else {
-          setFunding(null);
           console.error(
             "Unable to retrieve errand funding summary:",
             fundingResult.reason
           );
         }
 
+        let nextRelease = EMPTY_RELEASE;
+
         if (releaseResult.status === "fulfilled") {
-          setRelease(unwrapReleaseResponse(releaseResult.value));
+          nextRelease = unwrapReleaseResponse(releaseResult.value);
         } else {
-          setRelease(EMPTY_RELEASE);
           console.error(
             "Unable to retrieve fund-release information:",
             releaseResult.reason
           );
         }
+
+        setErrand(errandData);
+        setAcceptedOffer(selectedOffer);
+        setFunding(nextFunding);
+        setRelease(nextRelease);
       } catch (loadError) {
         console.error("Unable to load customer errand:", loadError);
 
@@ -254,7 +778,8 @@ export default function ErandDetails({
       setRelease(unwrapReleaseResponse(result));
     } catch (refreshError) {
       toast.error(
-        refreshError?.message || "Unable to refresh the fund-release status."
+        refreshError?.message ||
+          "Unable to refresh the fund-release status."
       );
     } finally {
       setReleaseLoading(false);
@@ -264,6 +789,12 @@ export default function ErandDetails({
   useEffect(() => {
     loadErrand();
   }, [loadErrand]);
+		
+		
+		
+  /* ------------------------------------------------------------------------ */
+  /*                              DERIVED DATA                                */
+  /* ------------------------------------------------------------------------ */
 
   const currency =
     funding?.currency ||
@@ -286,7 +817,8 @@ export default function ErandDetails({
       originalItems.reduce(
         (total, item) =>
           total +
-          Number(item.quantity ?? 1) * Number(item.estimated_unit_price ?? 0),
+          Number(item.quantity ?? 1) *
+            Number(item.estimated_unit_price ?? 0),
         0
       ),
     [originalItems]
@@ -356,6 +888,10 @@ export default function ErandDetails({
     [errand, release]
   );
 
+  /* ------------------------------------------------------------------------ */
+  /*                                  ACTIONS                                 */
+  /* ------------------------------------------------------------------------ */
+
   const handleEdit = useCallback(() => {
     if (errandId) navigate(ROUTES.edit(errandId));
   }, [navigate, errandId]);
@@ -364,19 +900,95 @@ export default function ErandDetails({
     if (errandId) navigate(ROUTES.offers(errandId));
   }, [navigate, errandId]);
 
-  const handleRaiseTicket = useCallback(() => {
-    if (typeof onRaiseTicket === "function") {
-      onRaiseTicket({ errandId, errand, offer: acceptedOffer });
+  const handleChatErander = useCallback(async () => {
+    const targetEranderId =
+      assignedErander?.id ||
+      errand?.assigned_erander_id ||
+      errand?.assignedEranderId;
+
+    if (targetEranderId) {
+      await openChat({ errandId, eranderId: targetEranderId });
       return;
     }
 
-    toast.info("Ticket support is not connected on this page yet.");
-  }, [onRaiseTicket, errandId, errand, acceptedOffer]);
+    handleViewOffers();
+  }, [
+    assignedErander?.id,
+    errand?.assigned_erander_id,
+    errand?.assignedEranderId,
+    errandId,
+    openChat,
+    handleViewOffers,
+  ]);
 
+  const handleChatPreference = useCallback(async () => {
+    if (!errand?.id || chatPreferenceSaving) return;
+
+    const current = errand.allow_erander_initiated_chat !== false;
+
+    setChatPreferenceSaving(true);
+
+    try {
+      const result = await updateErrandChatPreference(
+        errand.id,
+        !current
+      );
+
+      setErrand((previous) => ({
+        ...previous,
+        allow_erander_initiated_chat:
+          result?.data?.allowEranderInitiatedChat ?? !current,
+      }));
+
+      toast.success(
+        !current
+          ? "Eranders can now initiate a chat for this errand."
+          : "New erander-initiated chats are turned off for this errand."
+      );
+    } catch (preferenceError) {
+      toast.error(
+        preferenceError?.message ||
+          "Unable to update chat settings."
+      );
+    } finally {
+      setChatPreferenceSaving(false);
+    }
+  }, [errand, chatPreferenceSaving]);
+
+  
+		
+		const handleRaiseTicket = useCallback(() => {
+  if (!errand?.id) {
+    toast.error("Errand details are still loading. Please try again.");
+    return;
+  }
+
+  const ticketContext = {
+    errandId: errand.id,
+    errand,
+    offer: acceptedOffer,
+  };
+
+  if (typeof onRaiseTicket === "function") {
+    onRaiseTicket(ticketContext);
+    return;
+  }
+
+  setSupportErrand(errand);
+  setSupportOpen(true);
+}, [onRaiseTicket, errand, acceptedOffer]);
+		
+		
+		
+		
   const handleFundNow = useCallback(() => {
-    // A parent can still override the built-in checkout.
     if (typeof onFundNow === "function") {
-      onFundNow({ errandId, errand, offer: acceptedOffer, funding });
+      onFundNow({
+        errandId,
+        errand,
+        offer: acceptedOffer,
+        funding,
+      });
       return;
     }
 
@@ -388,7 +1000,19 @@ export default function ErandDetails({
     setFundOpen(true);
   }, [onFundNow, errandId, errand, acceptedOffer, funding]);
 
-  const handleCloseFund = useCallback(() => setFundOpen(false), []);
+  const handleCloseFund = useCallback(() => {
+    setFundOpen(false);
+  }, []);
+
+  const handleCopy = async () => {
+    await copyErrandId(errand);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
+  };
+
+  /* ------------------------------------------------------------------------ */
+  /*                              ACTION MENU                                */
+  /* ------------------------------------------------------------------------ */
 
   const errandActionItems = useMemo(
     () => [
@@ -404,45 +1028,169 @@ export default function ErandDetails({
         label: "Assign to a trusted erander",
         description: "Send this errand to an erander you already trust",
         icon: UserCheck,
-        onClick: () => toast.info("Coming soon."),
+        onClick: () =>
+          toast.info("Trusted erander assignment is coming soon."),
       },
       {
         id: "chat-erander",
-        label: "Chat any erander",
-        description: "Message any erander about this errand",
+        label:
+          assignedErander?.id || errand?.assigned_erander_id
+            ? "Message your erander"
+            : "Message an offerer",
+        description:
+          assignedErander?.id || errand?.assigned_erander_id
+            ? "Open the conversation for this errand"
+            : "Choose an offerer to start an errand chat",
         icon: MessageCircle,
-        onClick: () => toast.info("Coming soon."),
+        onClick: handleChatErander,
       },
     ],
-    [handleViewOffers]
+    [
+      handleViewOffers,
+      handleChatErander,
+      assignedErander?.id,
+      errand?.assigned_erander_id,
+    ]
   );
+		
+		
+		
+		useEffect(() => {
+  const eranderId = assignedErander?.id;
 
-  if (loading) {
+  if (!eranderId) {
+    setIsFavoriteErander(false);
+    return;
+  }
+
+  let active = true;
+
+  const checkFavoriteStatus = async () => {
+    setFavoriteLoading(true);
+
+    try {
+      const response = await getFavoriteErranders();
+
+      const data = response?.data ?? response ?? {};
+      const favorites = Array.isArray(data.favorites)
+        ? data.favorites
+        : [];
+
+      const exists = favorites.some(
+        (favorite) =>
+          String(favorite.erander_id || favorite.id) ===
+          String(eranderId)
+      );
+
+      if (active) {
+        setIsFavoriteErander(exists);
+      }
+    } catch (favoriteError) {
+      console.error(
+        "Unable to check favorite erander status:",
+        favoriteError
+      );
+    } finally {
+      if (active) {
+        setFavoriteLoading(false);
+      }
+    }
+  };
+
+  checkFavoriteStatus();
+
+  return () => {
+    active = false;
+  };
+}, [assignedErander?.id]);
+
+const handleAddFavoriteErander = useCallback(async () => {
+  const eranderId = assignedErander?.id;
+
+  if (!eranderId || favoriteSaving || isFavoriteErander) {
+    return;
+  }
+
+  setFavoriteSaving(true);
+
+  try {
+    await addFavoriteErander(eranderId);
+
+    setIsFavoriteErander(true);
+
+    toast.success(
+      `${assignedErander.name || "Erander"} added to your favorites.`
+    );
+  } catch (favoriteError) {
+    toast.error(
+      favoriteError?.message ||
+        "Unable to add this erander to your favorites."
+    );
+  } finally {
+    setFavoriteSaving(false);
+  }
+}, [
+  assignedErander,
+  favoriteSaving,
+  isFavoriteErander,
+]);
+
+
+
+
+
+  /* ------------------------------------------------------------------------ */
+  /*                              LOADING STATE                               */
+  /* ------------------------------------------------------------------------ */
+
+  if (loading || (!errand && !error)) {
     return (
       <ErrandPage>
-        <ErrandLoading />
+        <ErandDetailsSkeleton />
       </ErrandPage>
     );
   }
 
+  /* ------------------------------------------------------------------------ */
+  /*                               ERROR STATE                                */
+  /* ------------------------------------------------------------------------ */
+
   if (error && !errand) {
     return (
       <ErrandPage>
-        <BackButton onClick={() => navigate(-1)} label="Back" />
-        <ErrandError message={error} onRetry={() => loadErrand()} />
+        <ErrandError
+          message={error}
+          onRetry={() => loadErrand()}
+        />
       </ErrandPage>
     );
   }
 
   if (!errand) return null;
 
-  const canFund = errand.status === "awaiting_funding" && amountDue > 0;
+  /* ------------------------------------------------------------------------ */
+  /*                              PAGE CONDITIONS                             */
+  /* ------------------------------------------------------------------------ */
+
+  const errandStatus = String(errand.status || "").toLowerCase();
+  const releaseStatus = String(
+    releaseRequest?.status || ""
+  ).toLowerCase();
+
+  const canFund = errandStatus === "awaiting_funding" && amountDue > 0;
   const canEdit = canEditErrand(errand);
+
+  const hasErander = Boolean(
+    assignedErander?.id || errand.assigned_erander_id
+  );
+
+  const chatAllowed =
+    errand.allow_erander_initiated_chat !== false;
 
   const eranderName = assignedErander?.name || "";
 
   const subtitle =
-    releaseRequest?.status === "released"
+    releaseStatus === "released"
       ? "The funds have been released to your erander."
       : releaseRequest
         ? "Your erander has requested the release of funds."
@@ -452,35 +1200,208 @@ export default function ErandDetails({
             ? "Your erander is assigned to this errand."
             : "Review offers to choose an erander for this errand.";
 
+  /* ------------------------------------------------------------------------ */
+  /*                               NEXT STEP                                  */
+  /* ------------------------------------------------------------------------ */
+
+  let nextStep = null;
+
+  if (ENDED_STATUSES.includes(errandStatus)) {
+    nextStep = {
+      icon: XCircle,
+      tone: "neutral",
+      title: `This errand was ${
+        errandStatus === "canceled" ? "cancelled" : errandStatus
+      }`,
+      text: "It stays in your history. You can post a new errand any time.",
+    };
+  } else if (releaseStatus === "released") {
+    nextStep = {
+      icon: CheckCircle2,
+      tone: "success",
+      title: "Funds were released to your erander",
+      text: "The payment provider confirmed the transfer. Details are on the Payments tab.",
+    };
+  } else if (releaseRequest) {
+    nextStep = {
+      icon: Hourglass,
+      tone: "attention",
+      title: "Your erander asked for the funds",
+      text: "The request is being reviewed before any transfer starts. Follow it on the Payments tab.",
+    };
+  } else if (canFund) {
+    nextStep = {
+      icon: Wallet,
+      tone: "attention",
+      title: "Fund this errand to get it started",
+      text: `Pay ${formatCurrency(amountDue, currency)} so ${
+        eranderName || "your erander"
+      } can proceed.`,
+      action: {
+        label: "Fund errand",
+        icon: Wallet,
+        onClick: handleFundNow,
+      },
+    };
+  } else if (errandStatus === "completion_submitted") {
+    nextStep = {
+      icon: CheckCircle2,
+      tone: "attention",
+      title: "Your erander says the work is done",
+      text: "Review the work. Funds are released only after the errand is completed.",
+    };
+  } else if (errandStatus === "disputed") {
+    nextStep = {
+      icon: AlertCircle,
+      tone: "danger",
+      title: "This errand is under dispute",
+      text: "Use Get help to talk to support about it.",
+    };
+  } else if (["funded", "in_progress"].includes(errandStatus)) {
+    nextStep = {
+      icon: ShieldCheck,
+      tone: "success",
+      title:
+        errandStatus === "funded"
+          ? "Funded and ready"
+          : "Your erander is on it",
+      text: "Follow the progress below, or message your erander if you have questions.",
+    };
+  } else if (isAssigned) {
+    nextStep = {
+      icon: UserCheck,
+      tone: "success",
+      title: "You chose an erander",
+      text: "Follow the progress below. Funding comes next.",
+    };
+  } else {
+    nextStep = {
+      icon: Inbox,
+      tone: "attention",
+      title: "Choose an erander",
+      text: "Review the offers you've received and pick the one that suits you.",
+      action: {
+        label: "View offers",
+        icon: Users,
+        onClick: handleViewOffers,
+      },
+    };
+  }
+
+  /* ------------------------------------------------------------------------ */
+  /*                              ERANDER STAT                                */
+  /* ------------------------------------------------------------------------ */
+
   const eranderStat = eranderName ? (
     assignedErander.profileTo ? (
+					<div>
       <Link
         to={assignedErander.profileTo}
-        className="group inline-flex min-w-0 items-center gap-2 rounded-full text-brand-mint transition hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-mint"
+        className="inline-flex min-w-0 items-center gap-2 rounded-lg text-brand transition hover:text-success-dark focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
       >
         <UserRound
-          className="h-4 w-4 shrink-0"
-          strokeWidth={3}
+          size={15}
+          className="shrink-0"
           aria-hidden="true"
         />
-        <span className="min-w-0 truncate underline decoration-white/30 underline-offset-4 group-hover:decoration-brand-mint">
+
+        <span className="min-w-0 truncate underline decoration-line-strong underline-offset-4">
           {eranderName}
         </span>
       </Link>
+						
+						
+						
+
+						
+						
+						
+						
+						
+						
+						<button
+  type="button"
+  onClick={handleAddFavoriteErander}
+  disabled={
+    isFavoriteErander ||
+    favoriteSaving ||
+    favoriteLoading
+  }
+  aria-label={
+    isFavoriteErander
+      ? "Erander is already in your favorites"
+      : "Add erander to favorites"
+  }
+  title={
+    isFavoriteErander
+      ? "Already in your favorites"
+      : "Add to favorites"
+  }
+  className={`inline-flex min-h-6 shrink-0 items-center justify-center gap-1.5 rounded-lg border mx-6 mt-2 px-2.5 text-[10px] font-bold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 disabled:cursor-not-allowed ${
+    isFavoriteErander
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : "border-line bg-surface-white text-content-muted hover:border-brand/30 hover:bg-surface-muted hover:text-brand"
+  }`}
+>
+  {favoriteSaving || favoriteLoading ? (
+    <Loader2
+      size={14}
+      className="animate-spin"
+      aria-hidden="true"
+    />
+  ) : isFavoriteErander ? (
+    <CheckCircle2
+      size={14}
+      aria-hidden="true"
+    />
+  ) : (
+    <Plus
+      size={14}
+      aria-hidden="true"
+    />
+  )}
+
+  <span>
+    {favoriteSaving
+      ? "Adding..."
+      : favoriteLoading
+        ? "Checking..."
+        : isFavoriteErander
+          ? "Favorited"
+          : "Favorite"}
+  </span>
+</button>
+						
+						
+						
+						
+						
+						
+						
+						
+						
+						
+						
+						
+						
+						</div>
     ) : (
       <>
         <Check
-          className="h-4 w-4 shrink-0 text-brand-mint"
+          size={15}
+          className="shrink-0 text-success-dark"
           strokeWidth={3}
           aria-hidden="true"
         />
+
         <span className="min-w-0 truncate">{eranderName}</span>
       </>
     )
   ) : isAssigned ? (
     <>
       <Check
-        className="h-4 w-4 shrink-0 text-brand-mint"
+        size={15}
+        className="shrink-0 text-success-dark"
         strokeWidth={3}
         aria-hidden="true"
       />
@@ -496,14 +1417,18 @@ export default function ErandDetails({
       trigger={
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-sm font-bold text-white transition hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-mint"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-bold text-content-inverse transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
         >
-          <Users className="h-4 w-4" aria-hidden="true" />
+          <Users size={14} aria-hidden="true" />
           Take action
         </button>
       }
     />
   );
+
+  /* ------------------------------------------------------------------------ */
+  /*                                  STATS                                   */
+  /* ------------------------------------------------------------------------ */
 
   const stats = [
     {
@@ -516,23 +1441,41 @@ export default function ErandDetails({
     {
       label: "Funded",
       value: formatCurrency(amountFunded, currency),
-      tone: "mint",
       progress: getFundedPercent(amountFunded, agreedTotal),
     },
     {
       label: "Still to fund",
       value: formatCurrency(amountDue, currency),
     },
-    { label: "Your erander", value: eranderStat },
+    {
+      label: "Your erander",
+      value: eranderStat,
+    },
   ];
+
+  /* ------------------------------------------------------------------------ */
+  /*                                   TABS                                   */
+  /* ------------------------------------------------------------------------ */
 
   const tabs = [
     { value: "overview", label: "Overview" },
-    { value: "items", label: "Items", count: originalItems.length },
+    {
+      value: "items",
+      label: "Items",
+      count: originalItems.length,
+    },
     { value: "proposal", label: "Accepted offer" },
     { value: "payments", label: "Payments" },
-    { value: "activity", label: "Activity", count: activity.length },
+    {
+      value: "activity",
+      label: "Activity",
+      count: activity.length,
+    },
   ];
+
+  /* ------------------------------------------------------------------------ */
+  /*                                  SIDEBAR                                */
+  /* ------------------------------------------------------------------------ */
 
   const sidebar = (
     <>
@@ -558,122 +1501,181 @@ export default function ErandDetails({
         due={funding ? amountDue : undefined}
       />
 
-      <SupportCard role={ROLE} onRaiseTicket={handleRaiseTicket} />
+      <SupportCard
+        role={ROLE}
+        onRaiseTicket={handleRaiseTicket}
+      />
     </>
   );
 
+  /* ------------------------------------------------------------------------ */
+  /*                              HEADER ACTIONS                              */
+  /* ------------------------------------------------------------------------ */
+
+  const headerActions =
+    hasErander || canEdit ? (
+      <>
+        {hasErander ? (
+          <button
+            type="button"
+            onClick={handleChatErander}
+            className={BTN_GREEN}
+          >
+            <MessageCircle size={16} aria-hidden="true" />
+            Message erander
+          </button>
+        ) : null}
+
+        {canEdit ? (
+          <button
+            type="button"
+            onClick={handleEdit}
+            className={BTN_GHOST}
+          >
+            <Pencil size={16} aria-hidden="true" />
+            Edit errand
+          </button>
+        ) : null}
+      </>
+    ) : null;
+
+  /* ------------------------------------------------------------------------ */
+  /*                                PAGE RENDER                               */
+  /* ------------------------------------------------------------------------ */
+
   return (
     <ErrandPage>
-      <BackButton onClick={() => navigate(-1)} label="Back" />
-
-      <ErrandHeader
-        errand={errand}
-        subtitle={subtitle}
-        stats={stats}
-        onCopyId={() => copyErrandId(errand)}
-        onRefresh={() => loadErrand({ silent: true })}
-        refreshing={refreshing}
-        onRaiseTicket={handleRaiseTicket}
-        actions={
-          canEdit ? (
-            <button
-              type="button"
-              onClick={handleEdit}
-              className="inline-flex items-center justify-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-mint"
-            >
-              <Pencil className="h-4 w-4" aria-hidden="true" />
-              Edit errand
-            </button>
-          ) : null
-        }
-      />
-
-      <PartialErrorNotice message={error} />
-
-      {canFund ? (
-        <ActionBanner
-          icon={Clock3}
-          title="Fund this errand to get it started"
-          description={`Pay ${formatCurrency(amountDue, currency)} so ${
-            eranderName || "your erander"
-          } can proceed.`}
-          actionLabel="Fund errand"
-          onAction={handleFundNow}
+      <div className="space-y-5">
+        <ErrandHeaderCard
+          errand={errand}
+          subtitle={subtitle}
+          stats={stats}
+          actions={headerActions}
+          copied={copied}
+          refreshing={refreshing}
+          onCopy={handleCopy}
+          onRefresh={() => loadErrand({ silent: true })}
+          onHelp={handleRaiseTicket}
         />
-      ) : null}
 
-      <FundErrandModal
-        open={fundOpen}
-        errand={errand}
-        onClose={handleCloseFund}
-        onGetFundingSummary={getErrandFundingSummary}
-        onInitializePayment={initializePayment}
-      />
+        {error ? <SoftNotice>{error}</SoftNotice> : null}
 
-      <ProgressTracker
-        errand={errand}
-        payment={funding}
-        fundRelease={release}
-        timestamps={progressTimestamps}
-        showAssignedErander
-        viewerRole="customer"
-      />
+        <NextStepCard step={nextStep} />
 
-      <ErrandLayout tabs={tabs} tab={tab} onTab={setTab} sidebar={sidebar}>
-        {tab === "overview" ? (
-          <>
-            <OverviewSection errand={errand} currency={currency} role={ROLE} />
-            <InformationSection errand={errand} role={ROLE} />
-          </>
-        ) : null}
+        <ProgressTracker
+          errand={errand}
+          payment={funding}
+          fundRelease={release}
+          timestamps={progressTimestamps}
+          showAssignedErander
+          viewerRole="customer"
+        />
 
-        {tab === "items" ? (
-          <ItemsSection
-            items={originalItems}
-            offerItems={offerItems}
-            currency={currency}
-            errand={errand}
-            role={ROLE}
-            estimatedTotal={estimatedTotal}
-          />
-        ) : null}
+        <ChatPermissionCard
+          allowed={chatAllowed}
+          saving={chatPreferenceSaving}
+          onToggle={handleChatPreference}
+        />
 
-        {tab === "proposal" ? (
-          <>
-            <ProposalSection
-              offer={acceptedOffer}
-              originalItems={originalItems}
-              originalItemEstimate={originalItemEstimate}
-              currency={currency}
-              role={ROLE}
-            />
+        <FundErrandModal
+          open={fundOpen}
+          errand={errand}
+          onClose={handleCloseFund}
+          onGetFundingSummary={getErrandFundingSummary}
+          onInitializePayment={initializePayment}
+        />
 
-            {acceptedOffer ? (
-              <BudgetMonitor
-                budget={estimatedTotal}
-                approvedTotal={agreedTotal}
+        <ErrandLayout
+          tabs={tabs}
+          tab={tab}
+          onTab={setTab}
+          sidebar={sidebar}
+        >
+          {tab === "overview" ? (
+            <>
+              <OverviewSection
+                errand={errand}
                 currency={currency}
+                role={ROLE}
               />
-            ) : null}
-          </>
-        ) : null}
 
-        {tab === "payments" ? (
-          <>
-            <FundingSection funding={funding} currency={currency} role={ROLE} />
+              <InformationSection
+                errand={errand}
+                role={ROLE}
+              />
+            </>
+          ) : null}
 
-            <FundReleaseSection
+          {tab === "items" ? (
+            <ItemsSection
+              items={originalItems}
+              offerItems={offerItems}
+              currency={currency}
+              errand={errand}
               role={ROLE}
-              request={releaseRequest}
-              events={release?.events ?? []}
-              loading={releaseLoading}
-              onRefresh={refreshRelease}
+              estimatedTotal={estimatedTotal}
             />
-          </>
-        ) : null}
+          ) : null}
 
-        {tab === "activity" ? <ActivitySection activity={activity} /> : null}
-      </ErrandLayout>
+          {tab === "proposal" ? (
+            <>
+              <ProposalSection
+                offer={acceptedOffer}
+                originalItems={originalItems}
+                originalItemEstimate={originalItemEstimate}
+                currency={currency}
+                role={ROLE}
+              />
+
+              {acceptedOffer ? (
+                <BudgetMonitor
+                  budget={estimatedTotal}
+                  approvedTotal={agreedTotal}
+                  currency={currency}
+                />
+              ) : null}
+            </>
+          ) : null}
+
+          {tab === "payments" ? (
+            <>
+              <FundingSection
+                funding={funding}
+                currency={currency}
+                role={ROLE}
+              />
+
+              <FundReleaseSection
+                role={ROLE}
+                request={releaseRequest}
+                events={release?.events ?? []}
+                loading={releaseLoading}
+                onRefresh={refreshRelease}
+              />
+            </>
+          ) : null}
+
+          {tab === "activity" ? (
+            <ActivitySection activity={activity} />
+          ) : null}
+        </ErrandLayout>
+      </div>
+						
+						
+						<CreateSupportTicket
+								open={supportOpen}
+								onClose={() => {
+										setSupportOpen(false);
+										setSupportErrand(null);
+								}}
+								errand={supportErrand}
+								onCreated={() => {
+										setSupportOpen(false);
+										setSupportErrand(null);
+								}}
+						/>
+
+
     </ErrandPage>
   );
 }

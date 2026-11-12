@@ -5,7 +5,7 @@ export default function AdminWithdrawalsPage() {
 		<AdminRecordsPage
 			section="withdrawals"
 			title="Withdrawal requests"
-			description="Review every withdrawal request independently from wallet balances. Approve or reject requests, initiate the Paystack transfer after approval, and verify the provider's transfer status."
+			//description="Review every withdrawal request independently from wallet balances. Approve or reject requests, initiate the Paystack transfer after approval, and verify the provider's transfer status."
 			datasets={[{ value: "requests", label: "All withdrawal requests" }]}
 			initialDataset="requests"
 			statusOptions={[

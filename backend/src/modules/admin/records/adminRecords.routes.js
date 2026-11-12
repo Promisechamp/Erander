@@ -4,6 +4,7 @@ import {
   getAdminErrandDetails,
   getAdminSettingsAvailability,
   getAdminUserDetails,
+  getAdminTransactionDetails,
   listAdminRecords,
 } from "./adminRecords.controller.js";
 
@@ -12,5 +13,6 @@ router.use(requireAdminAuth);
 router.get("/settings/availability", getAdminSettingsAvailability);
 router.get("/errands/:erandId/details", getAdminErrandDetails);
 router.get("/users/:profileId/details", getAdminUserDetails);
+router.get("/transactions/:transactionId/details", getAdminTransactionDetails);
 router.get("/:section/:dataset", listAdminRecords);
 export default router;

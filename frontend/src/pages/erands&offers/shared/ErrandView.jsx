@@ -45,7 +45,7 @@ import { ErrandActivity, buildProposalItems, formatMoney } from "./ErrandTools";
 /*                                  CONSTANTS                                 */
 /* -------------------------------------------------------------------------- */
 
-export const CURRENCY_FALLBACK = "NGN";
+export const CURRENCY_FALLBACK = "USD";
 
 const TAB_TRANSITION = { duration: 0.22, ease: [0.22, 1, 0.36, 1] };
 const TAB_EXIT_TRANSITION = { duration: 0.1, ease: "easeIn" };
@@ -563,25 +563,14 @@ export function getActivityItems(errand, offer, release, role = "customer") {
 export function ErrandPage({ children }) {
   return (
     <DashboardLayout title="Errand">
-      <main className="mx-auto w-full max-w-[1440px] space-y-6 px-0 py-6 sm:px-2 lg:py-8">
+      <main className="mx-auto w-full max-w-[1440px] space-y-6 px-0 py-0 sm:px-2 lg:py-8">
         {children}
       </main>
     </DashboardLayout>
   );
 }
 
-export function BackButton({ onClick, label = "Back" }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="inline-flex items-center gap-2 text-sm font-semibold text-content-muted transition hover:text-brand-navy focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy"
-    >
-      <ArrowLeft size={17} aria-hidden="true" />
-      {label}
-    </button>
-  );
-}
+
 
 export function Section({
   title,
@@ -779,7 +768,7 @@ export function ViewModeToggle({ value, onChange }) {
 
   return (
     <div
-      className="inline-flex rounded-full bg-surface-muted p-1"
+      className="inline-flex rounded-full border border-gray bg-surface-muted p-1"
       role="group"
       aria-label="Choose item display"
     >
@@ -1660,15 +1649,14 @@ export function ItemsSection({
               </span>{" "}
               in total quantity, priced in {currency}
             </p>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="relative min-w-0 flex-1 sm:flex-none">
+												
+												
+												 <div className="relative min-w-0 flex-1 sm:flex-none">
                 <Search
                   size={16}
                   aria-hidden="true"
                   className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-content-subtle"
                 />
-
                 <input
                   type="search"
                   value={searchTerm}
@@ -1690,6 +1678,9 @@ export function ItemsSection({
                 ) : null}
               </div>
 
+
+            <div className="flex flex-wrap items-center gap-2">
+             
               <ViewModeToggle value={viewMode} onChange={setViewMode} />
 
               <div className="relative" ref={exportRef}>
@@ -1698,7 +1689,7 @@ export function ItemsSection({
                   onClick={() => setExportOpen((previous) => !previous)}
                   aria-expanded={exportOpen}
                   aria-haspopup="menu"
-                  className="inline-flex h-10 items-center gap-2 rounded-full bg-brand-navy px-4 text-sm font-semibold text-content-inverse shadow-sm transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-mint focus-visible:ring-offset-2"
+                  className="inline-flex h-9 items-center gap-2 rounded-full bg-brand-navy px-4 text-xs font-semibold text-content-inverse shadow-sm transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-mint focus-visible:ring-offset-2"
                 >
                   <Download size={16} aria-hidden="true" />
                   Export

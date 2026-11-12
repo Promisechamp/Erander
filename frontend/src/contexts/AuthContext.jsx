@@ -41,6 +41,7 @@ export function AuthProvider({ children }) {
       const authenticatedUser = await getCurrentUser();
       setUser(authenticatedUser);
       setAuthError(null);
+						
       return authenticatedUser;
     } catch (error) {
       if (error.status === 401) {

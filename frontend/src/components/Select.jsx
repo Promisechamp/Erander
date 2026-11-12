@@ -17,7 +17,6 @@ import {
   Loader2,
 } from "lucide-react";
 
-
 import Modal from "./Modal";
 
 const cn = (...classes) => classes.filter(Boolean).join(" ");
@@ -75,6 +74,24 @@ const getDescription = (option, descriptionKey) => {
       ""
   );
 };
+
+/**
+ * Renders an option's `icon` whether it's a React component (function/class)
+ * or a React element. Returns `null` when there's nothing to render.
+ */
+function OptionIcon({ icon, size = 16 }) {
+  if (!icon) return null;
+
+  if (React.isValidElement(icon)) {
+    return React.cloneElement(icon, { size });
+  }
+
+  if (typeof icon === "function" || typeof icon === "object") {
+    return React.createElement(icon, { size });
+  }
+
+  return null;
+}
 
 /* --------------------------------------------------
    Component
@@ -159,6 +176,8 @@ function Select({
   const [activeIndex, setActiveIndex] = useState(-1);
   const [position, setPosition] = useState(null);
   const [isMobile, setIsMobile] = useState(false);
+
+  const isInteractive = !disabled && !loading;
 
   /* --------------------------------------------------
      Mobile detection
@@ -697,7 +716,7 @@ function Select({
         onMouseEnter={() => setActiveIndex(index)}
         onClick={() => selectItem(item)}
         className={cn(
-          "flex w-full items-center gap-3 rounded-xl px-3 text-left",
+          "flex w-full items-center gap-3 rounded-md px-3 text-left",
           "transition-colors duration-150",
           isMobile ? "min-h-[52px] py-2.5" : "min-h-[46px] py-2",
           selected
@@ -733,7 +752,7 @@ function Select({
                 : "bg-surface-muted text-content-muted"
             )}
           >
-            
+            <OptionIcon icon={item.icon} size={16} />
           </span>
         )}
 
@@ -842,7 +861,7 @@ function Select({
                 aria-label="Clear search"
                 className="
                   flex h-7 w-7 items-center justify-center
-                  rounded-lg text-content-muted
+                  rounded-md text-content-muted
                   transition-colors
                   hover:bg-brand-pale hover:text-brand-navy
                   focus-visible:outline-none
@@ -938,7 +957,7 @@ function Select({
             className="
               fixed z-[1000]
               flex flex-col overflow-hidden
-              rounded-2xl border border-line
+              rounded-xl border border-line
               bg-surface-white text-content
               shadow-[0_16px_48px_rgba(20,33,61,0.16)]
               animate-in fade-in-0 zoom-in-[0.98] duration-100
@@ -973,15 +992,15 @@ function Select({
       isOpen={open}
       onClose={() => close(true)}
       position="bottom"
-      size="full"
+      size="sm"
       closeOnOutsideClick
       showCloseButton={false}
       className="
-        !mb-0
+        !mb-2
         !max-h-[85vh]
         !max-w-[calc(100vw-24px)]
         !overflow-hidden
-        !rounded-3xl
+        !rounded-2xl
         !border-line
         !shadow-[0_24px_80px_rgba(9,20,38,0.22)]
       "
@@ -1054,6 +1073,33 @@ function Select({
   ) : null;
 
   /* --------------------------------------------------
+     Hidden input for form submission (div can't carry `name`)
+  -------------------------------------------------- */
+
+  const hiddenInputs = (() => {
+    if (!name) return null;
+
+    if (multiple) {
+      return selectedValues.map((value, index) => (
+        <input
+          key={`${name}-${index}`}
+          type="hidden"
+          name={`${name}[]`}
+          value={value}
+        />
+      ));
+    }
+
+    return (
+      <input
+        type="hidden"
+        name={name}
+        value={selectedValues[0] ?? ""}
+      />
+    );
+  })();
+
+  /* --------------------------------------------------
      Trigger
   -------------------------------------------------- */
 
@@ -1088,13 +1134,12 @@ function Select({
         </div>
       )}
 
-      <button
+      {/* Div-based trigger: allows interactive children (clear/remove buttons). */}
+      <div
         ref={triggerRef}
         id={selectId}
-        name={name}
-        type="button"
-        disabled={disabled || loading}
         role="combobox"
+        tabIndex={isInteractive ? 0 : -1}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
@@ -1105,11 +1150,15 @@ function Select({
         }
         aria-invalid={Boolean(error)}
         aria-required={required || undefined}
-        onClick={() => (open ? close() : show())}
+        aria-disabled={!isInteractive || undefined}
+        onClick={() => {
+          if (!isInteractive) return;
+          open ? close() : show();
+        }}
         onKeyDown={handleTriggerKeyDown}
         className={cn(
-          "group flex min-h-[48px] w-full items-center gap-2.5",
-          "rounded-full border bg-surface-white pl-3.5 pr-2.5",
+          "group flex min-h-[48px] w-full cursor-pointer items-center gap-2.5",
+          "rounded-xl border bg-surface-white pl-3.5 pr-2.5",
           "text-left outline-none transition-colors duration-150",
           "focus-visible:ring-2 focus-visible:ring-offset-1",
           error
@@ -1117,7 +1166,7 @@ function Select({
             : open
               ? "border-brand-green ring-2 ring-brand-pale"
               : "border-line hover:border-brand-green focus-visible:border-brand-green focus-visible:ring-brand-pale",
-          (disabled || loading) && "cursor-not-allowed opacity-50"
+          !isInteractive && "cursor-not-allowed opacity-50"
         )}
       >
         <span className="flex min-w-0 flex-1 items-center gap-2.5 py-1.5">
@@ -1134,8 +1183,8 @@ function Select({
                   "
                 >
                   {showIcon && item.icon && (
-                    <span className="shrink-0">
-
+                    <span className="shrink-0 text-brand-navy">
+                      <OptionIcon icon={item.icon} size={12} />
                     </span>
                   )}
 
@@ -1173,6 +1222,7 @@ function Select({
             <>
               {showIcon && singleSelected?.icon && !renderValue && (
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-pale text-brand-navy">
+                  <OptionIcon icon={singleSelected.icon} size={15} />
                 </span>
               )}
 
@@ -1222,7 +1272,9 @@ function Select({
             )}
           />
         </span>
-      </button>
+      </div>
+
+      {hiddenInputs}
 
       {(error || hint) && (
         <p

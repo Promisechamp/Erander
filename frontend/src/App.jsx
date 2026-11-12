@@ -1,11 +1,12 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { Toaster } from "sonner";
+import Toaster from "@/components/Toaster";
 import LandingPage from "@/LandingPage";
 import { LoginPage, RegisterPage } from "@/pages/auth/AuthPages";
 import AdminLoginPage from "@/pages/admin/auth/AdminLoginPage";
 import DashboardPage from "@/pages/dashboard/DashboardPage";
 import ProfilePage from "@/pages/dashboard/ProfilePage";
-import WalletPage from "@/pages/dashboard/WalletPage";
+import FavoriteErrandersPage from "@/pages/favorites/FavoriteErrandersPage";
+import WalletPage from "@/pages/dashboard/wallet/WalletPage";
 import AvailableErrandsPage from "@/pages/erands&offers/errands/AvailableErrandsPage";
 import PlaceRequestPage from "@/pages/erands&offers/errands/create&edit-erand/PlaceRequestPage";
 import MyErrandsPage from "@/pages/erands&offers/errands/MyErrandsPage";
@@ -18,7 +19,14 @@ import MyOffersPage from "@/pages/erands&offers/offers/MyOffersPage";
 import PaymentCallbackPage from "@/components/PaymentCallbackPage";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { AdminAuthProvider } from "@/contexts/AdminAuthContext";
+import { ChatProvider } from "@/contexts/ChatContext";
+import ChatPage from "@/pages/chat/ChatPage";
+import AdminChatsPage from "@/pages/admin/chat/AdminChatsPage";
 import ProtectedRoute from "@/routes/ProtectedRoute";
+
+import SupportCenter from "@/pages/support/SupportCenter";
+import CreateSupportTicket from "@/pages/support/CreateSupportTicket";
+import SupportTicketDetails from "@/pages/support/SupportTicketDetails";
 
 
 //ADMIN LAYOUTS
@@ -37,12 +45,15 @@ import VerificationPage from "@/pages/admin/VerificationPage";
 import ReconciliationPage from "@/pages/admin/ReconciliationPage";
 import AuditLogsPage from "@/pages/admin/AuditLogsPage";
 import SettingsPage from "@/pages/admin/SettingsPage";
+import AdminSupportTickets from "@/pages/admin/support/AdminSupportTickets";
+import AdminSupportTicketDetails from "@/pages/admin/support/AdminSupportTicketDetails";
 
 export default function App() {
   return <BrowserRouter>
     <AuthProvider>
       <AdminAuthProvider>
-        <Toaster richColors position="top-right" />
+        <ChatProvider>
+        <Toaster  />
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<LoginPage />} />
@@ -62,14 +73,21 @@ export default function App() {
               <Route path="verification" element={<VerificationPage />} />
               <Route path="reconciliation" element={<ReconciliationPage />} />
               <Route path="audit-logs" element={<AuditLogsPage />} />
+              <Route path="chats" element={<AdminChatsPage />} />
               <Route path="settings" element={<SettingsPage />} />
+														<Route path="support" element={<AdminSupportTickets />} />
+              <Route path="support/:ticketId" element={<AdminSupportTicketDetails />} />
+
             </Route>
           </Route>
 
           <Route element={<ProtectedRoute />}>
             <Route path="/payment/callback" element={<PaymentCallbackPage />} />
             <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/chat" element={<ChatPage />} />
+            <Route path="/chat/:chatId" element={<ChatPage />} />
             <Route path="/dashboard/profile" element={<ProfilePage />} />
+												<Route path="/dashboard/favorite-erranders" element={<FavoriteErrandersPage />} />
             <Route path="/dashboard/wallet" element={<WalletPage />} />
             <Route path="/dashboard/available-errands" element={<AvailableErrandsPage />} />
             <Route path="/dashboard/erands" element={<MyErrandsPage />} />
@@ -80,9 +98,16 @@ export default function App() {
             <Route path="/dashboard/available-errands/:errandId/offer" element={<OfferSubmissionPage />} />
             <Route path="/dashboard/my-offers/:offerId" element={<OfferDetailsPage />} />
             <Route path="/dashboard/my-offers" element={<MyOffersPage />} />
+												
+												<Route path="/dashboard/support" element={<SupportCenter />} />
+            <Route path="/dashboard/support/new" element={<CreateSupportTicket />} />
+            <Route path="/dashboard/support/:ticketId" element={<SupportTicketDetails />} />
+
+
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </ChatProvider>
       </AdminAuthProvider>
     </AuthProvider>
   </BrowserRouter>;

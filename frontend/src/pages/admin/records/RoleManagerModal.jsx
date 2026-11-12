@@ -32,7 +32,7 @@ export default function RoleManagerModal({
       subtitle="Super administrator access"
       description={target ? fullName(target) : "Profile"}
       size="lg"
-      position="bottom"
+      position="center"
       height="auto"
       headerTone="navy"
       zIndex={100}

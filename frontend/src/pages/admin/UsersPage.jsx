@@ -4,7 +4,7 @@ export default function AdminUsersPage() {
 		<AdminRecordsPage
 			section="users"
 			title="User management"
-			description="Search customer and erander profiles, inspect account status and apply audited account restrictions. Super administrators can also assign or revoke administrator roles."
+			//description="Search customer and erander profiles, inspect account status and apply audited account restrictions. Super administrators can also assign or revoke administrator roles."
 			datasets={[{ value: "profiles", label: "User profiles" }]}
 			initialDataset="profiles"
 			statusOptions={["active", "suspended", "deactivated"]}

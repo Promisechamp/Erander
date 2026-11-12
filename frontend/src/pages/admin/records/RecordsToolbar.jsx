@@ -60,15 +60,17 @@ export default function RecordsToolbar({
           </h2>
           <p className="mt-0.5 text-xs text-content-muted">{subtitle}</p>
         </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="relative block min-w-0 flex-1 sm:flex-none">
+								
+								<div>
+								          <label className="relative block min-w-0 flex-1 sm:flex-none">
             <span className="sr-only">Search records</span>
             <Search
               size={16}
               aria-hidden="true"
               className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-content-subtle"
             />
+												
+												
             <input
               ref={searchRef}
               value={searchInput}
@@ -76,6 +78,7 @@ export default function RecordsToolbar({
               placeholder="Search records"
               className={`${INPUT} !h-10 !rounded-full pl-10 pr-12 sm:w-72`}
             />
+												
 
             {searchInput ? (
               <button
@@ -95,6 +98,9 @@ export default function RecordsToolbar({
               </kbd>
             )}
           </label>
+										</div>
+
+        <div className="flex flex-wrap items-center gap-2">
 
           <Popover
             icon={SlidersHorizontal}

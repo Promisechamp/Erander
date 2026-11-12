@@ -296,7 +296,7 @@ export default function RecordDetailsModal({
       subtitle={pageTitle}
       description={row ? String(getRowTitle(row, section)) : ""}
       size="xl"
-      position="bottom"
+      position="center"
       height="auto"
       headerTone="navy"
     >

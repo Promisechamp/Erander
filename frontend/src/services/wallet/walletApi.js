@@ -24,7 +24,7 @@ export async function getWalletOverview({ currency = "USD", page = 1, limit = 20
 
 export async function getWalletTransaction(transactionId) {
   const data = await request(`/wallets/transactions/${encodeURIComponent(transactionId)}`, { method: "GET" }, "Unable to retrieve this transaction.");
-  return data.transaction;
+  return { transaction: data.transaction, details: data.details || {} };
 }
 
 export async function getWithdrawalBanks() {

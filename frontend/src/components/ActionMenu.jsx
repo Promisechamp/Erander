@@ -34,22 +34,20 @@ const cn = (...classes) => classes.flat(Infinity).filter(Boolean).join(" ");
 const VIEWPORT_PADDING = 12;
 const MENU_GAP = 10;
 const POSITION_EPSILON = 1;
+const EASE = [0.22, 1, 0.36, 1];
 
 const VALID_PLACEMENTS = ["auto", "top", "bottom", "left", "right", "center"];
 
 const VALID_ALIGNMENTS = [
-  "start",
-  "center",
-  "end",
-  "left",
-  "right",
-  "top-left",
-  "top-right",
-  "bottom-left",
-  "bottom-right",
+  "start", "center", "end", "left", "right",
+  "top-left", "top-right", "bottom-left", "bottom-right",
 ];
 
 const VALID_TONES = ["light", "dark"];
+
+// Item state helpers — supports `loading` (canonical) and `busy` (alias).
+const isItemLoading = (item) => Boolean(item?.loading || item?.busy);
+const isItemDisabled = (item) => Boolean(item?.disabled || isItemLoading(item));
 
 const clamp = (value, min, max) =>
   Math.min(Math.max(value, min), Math.max(min, max));
@@ -72,12 +70,7 @@ const normalizeAlign = (align) =>
   VALID_ALIGNMENTS.includes(align) ? align : "bottom-right";
 
 const getOppositePlacement = (placement) => {
-  const opposites = {
-    top: "bottom",
-    bottom: "top",
-    left: "right",
-    right: "left",
-  };
+  const opposites = { top: "bottom", bottom: "top", left: "right", right: "left" };
   return opposites[placement] ?? placement;
 };
 
@@ -90,10 +83,7 @@ const getPlacementOrder = (preferredPlacement) => {
     return [
       preferredPlacement,
       getOppositePlacement(preferredPlacement),
-      "bottom",
-      "top",
-      "right",
-      "left",
+      "bottom", "top", "right", "left",
     ].filter(
       (placement, index, list) =>
         VALID_PLACEMENTS.includes(placement) &&
@@ -106,32 +96,22 @@ const getPlacementOrder = (preferredPlacement) => {
 
 const getAvailableSpace = (placement, rect, viewport) => {
   switch (placement) {
-    case "top":
-      return rect.top - viewport.top - VIEWPORT_PADDING;
-    case "bottom":
-      return viewport.top + viewport.height - rect.bottom - VIEWPORT_PADDING;
-    case "left":
-      return rect.left - viewport.left - VIEWPORT_PADDING;
-    case "right":
-      return viewport.left + viewport.width - rect.right - VIEWPORT_PADDING;
-    default:
-      return 0;
+    case "top": return rect.top - viewport.top - VIEWPORT_PADDING;
+    case "bottom": return viewport.top + viewport.height - rect.bottom - VIEWPORT_PADDING;
+    case "left": return rect.left - viewport.left - VIEWPORT_PADDING;
+    case "right": return viewport.left + viewport.width - rect.right - VIEWPORT_PADDING;
+    default: return 0;
   }
 };
 
 const getMotionOffset = (placement) => {
   switch (placement) {
-    case "top":
-      return { x: 0, y: 7 };
-    case "left":
-      return { x: 7, y: 0 };
-    case "right":
-      return { x: -7, y: 0 };
-    case "center":
-      return { x: 0, y: 5 };
+    case "top": return { x: 0, y: 7 };
+    case "left": return { x: 7, y: 0 };
+    case "right": return { x: -7, y: 0 };
+    case "center": return { x: 0, y: 5 };
     case "bottom":
-    default:
-      return { x: 0, y: -7 };
+    default: return { x: 0, y: -7 };
   }
 };
 
@@ -198,13 +178,11 @@ function calculateMenuPosition({
   const placements = getPlacementOrder(preferredPlacement);
 
   const spaceCandidates = placements.map((placement, index) => ({
-    placement,
-    index,
+    placement, index,
     space: getAvailableSpace(placement, triggerRect, viewport),
   }));
 
   const firstCandidate = spaceCandidates[0];
-
   const bestCandidate = spaceCandidates.reduce(
     (best, current) => (current.space > best.space ? current : best),
     firstCandidate
@@ -228,9 +206,7 @@ function calculateMenuPosition({
   let left = triggerRect.left;
 
   switch (placement) {
-    case "top":
-      top = triggerRect.top - menuHeight - MENU_GAP;
-      break;
+    case "top": top = triggerRect.top - menuHeight - MENU_GAP; break;
     case "left":
       top = triggerRect.top + triggerRect.height / 2 - menuHeight / 2;
       left = triggerRect.left - menuWidth - MENU_GAP;
@@ -240,9 +216,7 @@ function calculateMenuPosition({
       left = triggerRect.right + MENU_GAP;
       break;
     case "bottom":
-    default:
-      top = triggerRect.bottom + MENU_GAP;
-      break;
+    default: top = triggerRect.bottom + MENU_GAP; break;
   }
 
   if (cornerAlignment) {
@@ -250,7 +224,6 @@ function calculateMenuPosition({
       cornerAlignment.vertical === "top"
         ? triggerRect.top
         : triggerRect.bottom - menuHeight;
-
     left =
       cornerAlignment.horizontal === "left"
         ? triggerRect.left
@@ -259,34 +232,21 @@ function calculateMenuPosition({
     if (placement === "top" || placement === "bottom") {
       switch (align) {
         case "start":
-        case "left":
-          left = triggerRect.left;
-          break;
-        case "center":
-          left = triggerRect.left + triggerRect.width / 2 - menuWidth / 2;
-          break;
+        case "left": left = triggerRect.left; break;
+        case "center": left = triggerRect.left + triggerRect.width / 2 - menuWidth / 2; break;
         case "end":
         case "right":
-        default:
-          left = triggerRect.right - menuWidth;
-          break;
+        default: left = triggerRect.right - menuWidth; break;
       }
     }
-
     if (placement === "left" || placement === "right") {
       switch (align) {
-        case "start":
-          top = triggerRect.top;
-          break;
-        case "end":
-          top = triggerRect.bottom - menuHeight;
-          break;
+        case "start": top = triggerRect.top; break;
+        case "end": top = triggerRect.bottom - menuHeight; break;
         case "center":
         case "left":
         case "right":
-        default:
-          top = triggerRect.top + triggerRect.height / 2 - menuHeight / 2;
-          break;
+        default: top = triggerRect.top + triggerRect.height / 2 - menuHeight / 2; break;
       }
     }
   }
@@ -296,7 +256,6 @@ function calculateMenuPosition({
     viewport.top + VIEWPORT_PADDING,
     viewport.top + viewport.height - menuHeight - VIEWPORT_PADDING
   );
-
   left = clamp(
     left,
     viewport.left + VIEWPORT_PADDING,
@@ -304,9 +263,7 @@ function calculateMenuPosition({
   );
 
   return {
-    placement,
-    top,
-    left,
+    placement, top, left,
     maxHeight: availableHeight,
     maxWidth: availableWidth,
     menuWidth,
@@ -317,6 +274,23 @@ function calculateMenuPosition({
 // ActionMenu
 // ---------------------------------------------------------
 
+/**
+ * ActionMenu
+ *
+ * Controlled mode (optional):
+ *   <ActionMenu open={bool} onOpenChange={setBool} … />
+ * When `open` is provided, the parent owns the state and `onOpenChange`
+ * is called whenever the menu wants to open/close (trigger click, item
+ * select, Escape, outside click). The parent must update `open` in
+ * response. When `open` is omitted, the menu is uncontrolled and manages
+ * its own state internally.
+ *
+ * Item shape:
+ *   { label, icon, onClick, to, danger, disabled,
+ *     loading | busy,        // spinner; keeps item focusable (no native disable)
+ *     closeOnSelect,         // per-item override of the menu-level closeOnSelect
+ *     checked, description, hidden, divider, className, id, key }
+ */
 export default function ActionMenu({
   items = [],
   placement = "auto",
@@ -324,17 +298,7 @@ export default function ActionMenu({
   triggerIcon: TriggerIcon = MoreVertical,
   triggerSize = 18,
   triggerLabel,
-  /**
-   * Custom trigger element. When provided, this replaces the default
-   * icon button. It can be a <button>, a <Link>, or any element.
-   * The ref, aria attributes, and click handler are applied via
-   * cloneElement so custom triggers behave identically to the default.
-   */
   trigger = null,
-  /**
-   * "light" suits white and grey surfaces (the default).
-   * "dark" suits the navy hero headers.
-   */
   tone = "light",
   buttonClassName = "",
   menuClassName = "",
@@ -344,6 +308,7 @@ export default function ActionMenu({
   hidden = false,
   menuWidth = 208,
   closeOnSelect = true,
+  open: openProp,          // ← controlled (optional)
   onOpenChange,
 }) {
   const generatedId = useId();
@@ -357,7 +322,11 @@ export default function ActionMenu({
   const firstOpenRef = useRef(false);
   const animationFrameRef = useRef(null);
 
-  const [open, setOpen] = useState(false);
+  // ── Controlled / uncontrolled open state ─────────────────
+  const isControlled = openProp !== undefined;
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = isControlled ? openProp : internalOpen;
+
   const [position, setPosition] = useState(null);
   const [positionReady, setPositionReady] = useState(false);
 
@@ -376,9 +345,7 @@ export default function ActionMenu({
    */
   const normalizedItems = useMemo(() => {
     const visible = items.filter((item) => item && !item.hidden);
-
     const cleaned = [];
-
     for (const item of visible) {
       if (item.divider) {
         if (!cleaned.length) continue;
@@ -388,39 +355,45 @@ export default function ActionMenu({
         cleaned.push(item);
       }
     }
-
     while (cleaned.length && cleaned[cleaned.length - 1].divider) {
       cleaned.pop();
     }
-
     return cleaned;
   }, [items]);
 
   const navigableItems = useMemo(
     () =>
       normalizedItems.filter(
-        (item) => !item.divider && !item.disabled && !item.loading
+        (item) => !item.divider && !isItemDisabled(item)
       ),
     [normalizedItems]
   );
 
-  const hasActionableItems = navigableItems.length > 0;
+  // A loading item still counts as "actionable" so the menu doesn't
+  // auto-close while work is in flight.
+  const hasActionableItems = useMemo(
+    () =>
+      normalizedItems.some(
+        (item) => !item.divider && (isItemLoading(item) || !isItemDisabled(item))
+      ),
+    [normalizedItems]
+  );
 
+  // ── Open state bridge ──────────────────────────────────────
+  // In uncontrolled mode we set internal state directly.
+  // In controlled mode we only notify; the parent updates `open`.
   const setMenuOpen = useCallback(
     (nextOpen) => {
-      setOpen(nextOpen);
+      if (!isControlled) setInternalOpen(nextOpen);
       onOpenChange?.(nextOpen);
-
       if (!nextOpen) {
         setPositionReady(false);
         setPosition(null);
       }
     },
-    [onOpenChange]
+    [isControlled, onOpenChange]
   );
 
-  // If the menu becomes hidden or loses all actionable items while open,
-  // force it shut so the portal doesn't linger.
   useEffect(() => {
     if (open && (hidden || disabled || !hasActionableItems)) {
       setMenuOpen(false);
@@ -434,7 +407,6 @@ export default function ActionMenu({
   const updatePosition = useCallback(() => {
     const trigger = triggerRef.current;
     const menu = menuRef.current;
-
     if (!trigger || !menu) return;
 
     const triggerRect = trigger.getBoundingClientRect();
@@ -469,7 +441,6 @@ export default function ActionMenu({
     if (animationFrameRef.current !== null) {
       cancelAnimationFrame(animationFrameRef.current);
     }
-
     animationFrameRef.current = requestAnimationFrame(() => {
       animationFrameRef.current = null;
       updatePosition();
@@ -483,7 +454,6 @@ export default function ActionMenu({
 
     const trigger = triggerRef.current;
     const menu = menuRef.current;
-
     if (!trigger || !menu) return undefined;
 
     window.addEventListener("scroll", schedulePositionUpdate, true);
@@ -505,28 +475,21 @@ export default function ActionMenu({
 
     const trackTrigger = () => {
       if (cancelled || !triggerRef.current) return;
-
       const rect = triggerRef.current.getBoundingClientRect();
-
       const nextRect = {
-        top: rect.top,
-        left: rect.left,
-        width: rect.width,
-        height: rect.height,
+        top: rect.top, left: rect.left,
+        width: rect.width, height: rect.height,
       };
-
       const moved =
         !previousRect ||
         Math.abs(previousRect.top - nextRect.top) > 0.5 ||
         Math.abs(previousRect.left - nextRect.left) > 0.5 ||
         Math.abs(previousRect.width - nextRect.width) > 0.5 ||
         Math.abs(previousRect.height - nextRect.height) > 0.5;
-
       if (moved) {
         previousRect = nextRect;
         schedulePositionUpdate();
       }
-
       trackingFrame = requestAnimationFrame(trackTrigger);
     };
 
@@ -534,20 +497,11 @@ export default function ActionMenu({
 
     return () => {
       cancelled = true;
-
       window.removeEventListener("scroll", schedulePositionUpdate, true);
       window.removeEventListener("resize", schedulePositionUpdate);
-      window.visualViewport?.removeEventListener(
-        "resize",
-        schedulePositionUpdate
-      );
-      window.visualViewport?.removeEventListener(
-        "scroll",
-        schedulePositionUpdate
-      );
-
+      window.visualViewport?.removeEventListener("resize", schedulePositionUpdate);
+      window.visualViewport?.removeEventListener("scroll", schedulePositionUpdate);
       resizeObserver?.disconnect();
-
       if (trackingFrame !== null) cancelAnimationFrame(trackingFrame);
       if (animationFrameRef.current !== null) {
         cancelAnimationFrame(animationFrameRef.current);
@@ -565,14 +519,12 @@ export default function ActionMenu({
 
     const handlePointerDown = (event) => {
       const target = event.target;
-
       if (
         triggerRef.current?.contains(target) ||
         menuRef.current?.contains(target)
       ) {
         return;
       }
-
       setMenuOpen(false);
     };
 
@@ -584,6 +536,11 @@ export default function ActionMenu({
         requestAnimationFrame(() => {
           triggerRef.current?.focus();
         });
+        return;
+      }
+
+      if (event.key === "Tab") {
+        setMenuOpen(false);
         return;
       }
 
@@ -608,8 +565,7 @@ export default function ActionMenu({
       } else if (event.key === "End") {
         nextIndex = elements.length - 1;
       } else if (event.key === "ArrowDown") {
-        nextIndex =
-          activeIndex < 0 ? 0 : (activeIndex + 1) % elements.length;
+        nextIndex = activeIndex < 0 ? 0 : (activeIndex + 1) % elements.length;
       } else if (event.key === "ArrowUp") {
         nextIndex =
           activeIndex < 0
@@ -639,18 +595,15 @@ export default function ActionMenu({
       firstOpenRef.current = false;
       return undefined;
     }
-
     if (firstOpenRef.current) return undefined;
     firstOpenRef.current = true;
 
     const focusFirstItem = () => {
       const menu = menuRef.current;
       if (!menu) return;
-
       const firstItem = menu.querySelector(
         '[role="menuitem"]:not([aria-disabled="true"])'
       );
-
       firstItem?.focus({ preventScroll: true });
     };
 
@@ -664,12 +617,14 @@ export default function ActionMenu({
 
   const handleItemSelect = useCallback(
     (item, event) => {
-      if (item.disabled || item.loading || item.divider) {
+      if (isItemDisabled(item) || item.divider) {
         event?.preventDefault();
         return;
       }
 
-      if (closeOnSelect) {
+      // Per-item closeOnSelect wins over the component-level default.
+      const shouldClose = item.closeOnSelect ?? closeOnSelect;
+      if (shouldClose) {
         setMenuOpen(false);
       }
 
@@ -692,13 +647,10 @@ export default function ActionMenu({
       y: shouldReduceMotion ? 0 : motionOffset.y,
     },
     visible: {
-      opacity: 1,
-      scale: 1,
-      x: 0,
-      y: 0,
+      opacity: 1, scale: 1, x: 0, y: 0,
       transition: {
         duration: shouldReduceMotion ? 0 : 0.16,
-        ease: [0.22, 1, 0.36, 1],
+        ease: EASE,
       },
     },
     exit: {
@@ -728,8 +680,9 @@ export default function ActionMenu({
     }
 
     const Icon = item.icon;
+    const isLoading = isItemLoading(item);
     const isDanger = Boolean(item.danger);
-    const isDisabled = Boolean(item.disabled || item.loading);
+    const isDisabled = isItemDisabled(item);
     const isLink = Boolean(item.to && !isDisabled);
 
     const itemClassName = cn(
@@ -740,16 +693,8 @@ export default function ActionMenu({
       "transition-[background-color,color,transform] duration-150 ease-out",
       "focus-visible:ring-2 focus-visible:ring-inset",
       isDanger
-        ? [
-            "text-rose-700",
-            "hover:bg-rose-50",
-            "focus-visible:bg-rose-50 focus-visible:ring-rose-300",
-          ]
-        : [
-            "text-content",
-            "hover:bg-surface",
-            "focus-visible:bg-brand-pale focus-visible:ring-brand-navy",
-          ],
+        ? ["text-rose-700", "hover:bg-rose-50", "focus-visible:bg-rose-50 focus-visible:ring-rose-300"]
+        : ["text-content", "hover:bg-surface", "focus-visible:bg-brand-pale focus-visible:ring-brand-navy"],
       !isDisabled && "active:scale-[0.99]",
       isDisabled && "cursor-not-allowed opacity-50 hover:bg-transparent",
       item.className
@@ -764,9 +709,9 @@ export default function ActionMenu({
 
     const content = (
       <>
-        {Icon && (
+        {(isLoading || Icon) && (
           <span className={iconClassName} aria-hidden="true">
-            {item.loading ? (
+            {isLoading ? (
               <LoaderCircle size={18} className="animate-spin" />
             ) : (
               <Icon size={18} strokeWidth={1.9} />
@@ -775,7 +720,9 @@ export default function ActionMenu({
         )}
 
         <span className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate">{item.label}</span>
+          <span className="truncate" aria-live="polite" aria-atomic="true">
+            {item.label}
+          </span>
 
           {item.description && (
             <span
@@ -809,11 +756,14 @@ export default function ActionMenu({
     );
 
     const commonProps = {
-      key: item.id ?? item.key ?? `${item.label}-${index}`,
+      // Stable, index-based key so a label change doesn't remount the node
+      // (which would restart the spinner and drop focus mid-action).
+      key: item.id ?? item.key ?? `item-${index}`,
       className: itemClassName,
       role: "menuitem",
       tabIndex: isDisabled ? -1 : 0,
       "aria-disabled": isDisabled ? "true" : undefined,
+      "aria-busy": isLoading ? "true" : undefined,
       onClick: (event) => {
         if (isDisabled) {
           event.preventDefault();
@@ -843,7 +793,12 @@ export default function ActionMenu({
     }
 
     return (
-      <button {...commonProps} type="button" disabled={isDisabled}>
+      <button
+        {...commonProps}
+        type="button"
+        // Loading items stay focusable; only true disables use native disabled.
+        disabled={Boolean(item.disabled) && !isLoading}
+      >
         {content}
       </button>
     );
@@ -864,7 +819,7 @@ export default function ActionMenu({
 
   const triggerClasses = cn(
     "relative inline-flex shrink-0 items-center justify-center",
-    triggerLabel ? "gap-2 rounded-full px-4" : "rounded-full",
+    triggerLabel ? "gap-2 rounded-2xl px-4" : "rounded-xl",
     "border transition-[background-color,border-color,color,transform] duration-200 ease-out",
     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
     "disabled:pointer-events-none disabled:opacity-40",
@@ -897,9 +852,7 @@ export default function ActionMenu({
         aria-hidden="true"
       />
 
-      {triggerLabel && (
-        <span className="text-sm font-semibold">{triggerLabel}</span>
-      )}
+      {triggerLabel && <span className="text-sm font-semibold">{triggerLabel}</span>}
 
       <span className="sr-only">
         {open ? "Close actions menu" : ariaLabel}
@@ -907,8 +860,6 @@ export default function ActionMenu({
     </button>
   );
 
-  // Custom trigger: the ref and menu behaviour are attached via
-  // cloneElement so any element (button, Link, div) works unchanged.
   const customTrigger =
     trigger && React.isValidElement(trigger)
       ? cloneElement(trigger, {
@@ -919,10 +870,8 @@ export default function ActionMenu({
           "aria-label": trigger.props?.["aria-label"] ?? ariaLabel,
           onClick: (event) => {
             trigger.props?.onClick?.(event);
-
             if (event.defaultPrevented) return;
             if (disabled) return;
-
             setMenuOpen(!open);
           },
         })
@@ -983,11 +932,6 @@ export default function ActionMenu({
     </AnimatePresence>
   );
 
-  // -------------------------------------------------------
-  // Hidden short-circuit
-  // -------------------------------------------------------
-
-  // Rendered after all hooks so React's hook order rules stay intact.
   if (hidden) return null;
 
   return (

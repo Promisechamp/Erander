@@ -8,6 +8,7 @@ import {
   CalendarClock,
   Check,
   CheckCircle2,
+  ClipboardList,
   Clock3,
   Home,
   Info,
@@ -24,14 +25,15 @@ import {
   UserRound,
   Wallet,
 } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 
 import Modal from "@/components/Modal";
 import Select from "@/components/Select";
 import { getMyAddresses } from "@/services/profiles/profilesApi";
 
-/* -------------------------------------------------------
-   CONSTANTS
-------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+/*                                  CONSTANTS                                 */
+/* -------------------------------------------------------------------------- */
 
 export const CATEGORIES = [
   {
@@ -78,10 +80,7 @@ export const CATEGORIES = [
   },
 ];
 
-const OFFER_OPTIONS = [1, 3, 5, 10, 15, 20, 30, 50, 100].map((count) => ({
-  value: String(count),
-  label: `${count} ${count === 1 ? "offer" : "offers"}`,
-}));
+const MAX_OFFERS = 100;
 
 const LOCATION_TYPE_OPTIONS = [
   { value: "residential", label: "Home / Residential" },
@@ -121,12 +120,12 @@ const EMPTY_ADDRESS = {
 };
 
 const inputClass = [
-  "w-full rounded-xl border border-line bg-surface-white",
+  "w-full rounded-2xl border border-line bg-surface-white",
   "px-4 py-3 text-sm text-content outline-none",
   "transition duration-200 placeholder:text-content-subtle",
   "focus:border-brand-navy focus:ring-2 focus:ring-brand-pale",
-  "aria-[invalid=true]:border-red-400",
-  "disabled:cursor-not-allowed disabled:bg-surface disabled:text-content-muted",
+  "aria-[invalid=true]:border-rose-400",
+  "disabled:cursor-not-allowed disabled:bg-surface-muted disabled:text-content-muted",
 ].join(" ");
 
 const labelClass = "mb-2 block text-sm font-bold text-content";
@@ -134,7 +133,7 @@ const labelClass = "mb-2 block text-sm font-bold text-content";
 const primaryButtonClass = [
   "inline-flex min-h-12 items-center justify-center gap-2",
   "rounded-full bg-brand-green px-7 py-3 text-sm font-extrabold",
-  "text-brand-navy shadow-sm transition hover:brightness-95",
+  "text-brand-navy transition hover:brightness-95",
   "focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy focus-visible:ring-offset-2",
   "disabled:cursor-not-allowed disabled:opacity-60",
 ].join(" ");
@@ -143,32 +142,28 @@ const secondaryButtonClass = [
   "inline-flex min-h-12 items-center justify-center gap-2",
   "rounded-full border border-line bg-surface-white",
   "px-6 py-3 text-sm font-bold text-content-muted",
-  "transition hover:bg-surface hover:text-content",
+  "transition hover:bg-surface-muted hover:text-content",
   "focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy",
   "disabled:cursor-not-allowed disabled:opacity-50",
 ].join(" ");
 
-/* -------------------------------------------------------
-   HELPERS
-------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+/*                                   HELPERS                                  */
+/* -------------------------------------------------------------------------- */
 
 export function toLocalInput(value) {
   if (!value) return "";
 
   const date = new Date(value);
-
   if (Number.isNaN(date.getTime())) return "";
 
   date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
-
   return date.toISOString().slice(0, 16);
 }
 
 function getLocalDateTimeMinimum() {
   const date = new Date();
-
   date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
-
   return date.toISOString().slice(0, 16);
 }
 
@@ -176,30 +171,66 @@ function toIsoDateTime(value) {
   if (!value) return null;
 
   const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
+  if (Number.isNaN(date.getTime())) return null;
 
   return date.toISOString();
 }
 
-function formatNaira(value) {
-  return Number(value || 0).toLocaleString("en-NG", {
+const CURRENCY_LOCALES = {
+  USD: "en-US",
+  NGN: "en-NG",
+  GBP: "en-GB",
+  EUR: "de-DE",
+};
+
+const CURRENCY_SYMBOLS = {
+  USD: "$",
+  NGN: "₦",
+  GBP: "£",
+  EUR: "€",
+};
+
+function getCurrencySymbol(currency) {
+  const code = String(currency || "").trim().toUpperCase();
+  return CURRENCY_SYMBOLS[code] || CURRENCY_SYMBOLS.USD;
+}
+
+function formatCurrency(value, currency = "USD") {
+  const code = String(currency || "").trim().toUpperCase();
+  const locale = CURRENCY_LOCALES[code] || "en-US";
+  const amount = Number(value || 0);
+
+  return amount.toLocaleString(locale, {
     style: "currency",
-    currency: "NGN",
+    currency: CURRENCY_LOCALES[code] ? code : "USD",
     maximumFractionDigits: 2,
   });
+}
+
+/**
+ * Sanitises a raw input value into a whole number string between 1 and 100.
+ * - Strips anything that isn't an integer digit (so `2.8` → `2`, `99.9` → `99`)
+ * - Clamps anything above `MAX_OFFERS` to `MAX_OFFERS`
+ * - Returns `""` for empty input so the user can clear the field
+ */
+function sanitizeMaxOffers(rawValue) {
+  const integerPart = String(rawValue ?? "")
+    .split(/[.,]/)[0]
+    .replace(/\D/g, "");
+
+  if (integerPart === "") return "";
+
+  const parsed = parseInt(integerPart, 10);
+  const clamped = Math.min(MAX_OFFERS, Math.max(1, parsed));
+
+  return String(clamped);
 }
 
 function formatDateTime(value) {
   if (!value) return "Flexible";
 
   const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "Not set";
-  }
+  if (Number.isNaN(date.getTime())) return "Not set";
 
   return date.toLocaleString("en-NG", {
     dateStyle: "medium",
@@ -218,13 +249,9 @@ function extractAddresses(response) {
   return candidates.find(Array.isArray) || [];
 }
 
-function getAddressId(address) {
-  return address?.id ?? address?.address_id ?? "";
-}
-
-function getAddressLabel(address) {
-  return address?.label || address?.name || "Saved address";
-}
+const getAddressId = (address) => address?.id ?? address?.address_id ?? "";
+const getAddressLabel = (address) =>
+  address?.label || address?.name || "Saved address";
 
 function getAddressDescription(address) {
   return [
@@ -239,13 +266,10 @@ function getAddressDescription(address) {
     .join(", ");
 }
 
-function isDefaultAddress(address) {
-  return (
-    address?.is_default === true ||
-    address?.isDefault === true ||
-    address?.is_default === "true"
-  );
-}
+const isDefaultAddress = (address) =>
+  address?.is_default === true ||
+  address?.isDefault === true ||
+  address?.is_default === "true";
 
 /* Turns a stored errand location into the shape this form shows. */
 export function getCurrentDestination(record) {
@@ -273,16 +297,16 @@ export function getCurrentDestination(record) {
   };
 }
 
-/* -------------------------------------------------------
-   SMALL UI PIECES
-------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+/*                               SMALL COMPONENTS                             */
+/* -------------------------------------------------------------------------- */
 
 function FieldError({ children }) {
   if (!children) return null;
 
   return (
     <p
-      className="mt-1.5 text-xs font-semibold text-red-600"
+      className="mt-1.5 text-xs font-semibold text-rose-600"
       role="alert"
       data-field-error=""
     >
@@ -291,62 +315,69 @@ function FieldError({ children }) {
   );
 }
 
-function FormField({
-  label,
-  required = false,
-  hint,
-  error,
-  htmlFor,
-  children,
-}) {
+function FormField({ label, required = false, hint, error, htmlFor, children }) {
   return (
     <div className="min-w-0">
-      {label && (
+      {label ? (
         <label htmlFor={htmlFor} className={labelClass}>
           {label}
-
-          {required && (
+          {required ? (
             <>
-              <span className="ml-1 text-red-500" aria-hidden="true">
+              <span className="ml-1 text-rose-500" aria-hidden="true">
                 *
               </span>
-
               <span className="sr-only"> (required)</span>
             </>
-          )}
+          ) : null}
         </label>
-      )}
+      ) : null}
 
       {children}
 
-      {hint && !error && (
+      {hint && !error ? (
         <p className="mt-1.5 text-xs leading-5 text-content-muted">{hint}</p>
-      )}
+      ) : null}
 
       <FieldError>{error}</FieldError>
     </div>
   );
 }
 
-function FormSection({ id, title, description, children }) {
+/** Each part of the form is its own card with a step number. */
+function FormSection({ id, step, done, title, description, children }) {
   return (
     <section
       id={id}
-      className="scroll-mt-24 py-8 first:pt-0 last:pb-0"
       aria-labelledby={`${id}-title`}
+      className="scroll-mt-24 rounded-3xl border border-line bg-surface-white p-5 sm:p-7"
     >
-      <h2
-        id={`${id}-title`}
-        className="text-xl font-extrabold tracking-tight text-content"
-      >
-        {title}
-      </h2>
+      <div className="flex items-start gap-3.5">
+        <span
+          aria-hidden="true"
+          className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-extrabold transition ${
+            done
+              ? "bg-brand-green text-brand-navy"
+              : "bg-surface-muted text-content-muted"
+          }`}
+        >
+          {done ? <Check size={15} strokeWidth={3} /> : step}
+        </span>
 
-      {description && (
-        <p className="mt-1 max-w-xl text-sm leading-6 text-content-muted">
-          {description}
-        </p>
-      )}
+        <div className="min-w-0">
+          <h2
+            id={`${id}-title`}
+            className="text-lg font-extrabold tracking-tight text-content"
+          >
+            {title}
+          </h2>
+
+          {description ? (
+            <p className="mt-0.5 max-w-xl text-sm leading-6 text-content-muted">
+              {description}
+            </p>
+          ) : null}
+        </div>
+      </div>
 
       <div className="mt-6">{children}</div>
     </section>
@@ -355,7 +386,7 @@ function FormSection({ id, title, description, children }) {
 
 function Callout({ icon: Icon = Info, tone = "brand", children }) {
   const tones = {
-    brand: "border-brand-green bg-brand-pale/60 text-content",
+    brand: "border-brand-green bg-brand-pale text-success-dark",
     amber: "border-amber-400 bg-amber-50 text-amber-900",
   };
 
@@ -373,7 +404,6 @@ function SummaryRow({ label, children }) {
   return (
     <div className="flex flex-col gap-1 py-3 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
       <dt className="shrink-0 text-sm text-content-muted">{label}</dt>
-
       <dd className="min-w-0 text-sm font-semibold text-content sm:max-w-[70%] sm:text-right">
         {children}
       </dd>
@@ -381,7 +411,7 @@ function SummaryRow({ label, children }) {
   );
 }
 
-function ChoiceTile({ selected, onClick, title, description, children }) {
+function ChoiceTile({ selected, onClick, title, description }) {
   return (
     <button
       type="button"
@@ -396,28 +426,40 @@ function ChoiceTile({ selected, onClick, title, description, children }) {
     >
       <span className="flex items-center justify-between gap-3">
         <span className="text-sm font-extrabold text-content">{title}</span>
-
-        {selected && (
+        {selected ? (
           <CheckCircle2
             size={18}
-            className="shrink-0 text-success"
+            className="shrink-0 text-success-dark"
             aria-hidden="true"
           />
-        )}
+        ) : null}
       </span>
 
       <span className="mt-1 block text-xs leading-5 text-content-muted">
         {description}
       </span>
-
-      {children}
     </button>
   );
 }
 
-/* -------------------------------------------------------
-   MAIN FORM
-------------------------------------------------------- */
+function Tile({ label, value, tone = "default" }) {
+  return (
+    <div className="min-w-0 rounded-2xl bg-surface-muted/60 px-4 py-3">
+      <dt className="truncate text-xs font-semibold text-content-muted">{label}</dt>
+      <dd
+        className={`mt-1 truncate text-base font-extrabold tabular-nums ${
+          tone === "good" ? "text-success-dark" : "text-content"
+        }`}
+      >
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                  MAIN FORM                                 */
+/* -------------------------------------------------------------------------- */
 
 export default function ErrandRequestForm({
   mode = "create",
@@ -426,12 +468,19 @@ export default function ErrandRequestForm({
   errandMeta = null,
   editable = true,
   lockedMessage = "",
-  currency = "NGN",
   onSubmit,
   onCancel,
   backLabel = "Back",
 }) {
+  const { user } = useAuth();
   const isEdit = mode === "edit";
+
+  const currency =
+    user?.user_metadata?.preferred_currency ||
+    user?.preferred_currency ||
+    "USD";
+
+  const currencySymbol = getCurrencySymbol(currency);
 
   const [form, setForm] = useState(() => ({
     ...EMPTY_FORM,
@@ -490,16 +539,13 @@ export default function ErrandRequestForm({
       !Number.isFinite(price) ||
       quantity <= 0 ||
       price < 0
-    ) {
+    )
       return total;
-    }
 
     return total + quantity * price;
   }, 0);
 
-  /* ---------------------------------------------------
-     Load saved addresses
-  --------------------------------------------------- */
+  /* ------------------------- Load saved addresses ------------------------- */
 
   useEffect(() => {
     let active = true;
@@ -510,42 +556,34 @@ export default function ErrandRequestForm({
 
       try {
         const response = await getMyAddresses();
-        const loadedAddresses = extractAddresses(response);
+        const loaded = extractAddresses(response);
 
         if (!active) return;
 
-        setAddresses(loadedAddresses);
+        setAddresses(loaded);
 
-        if (loadedAddresses.length > 0) {
-          const defaultAddress = loadedAddresses.find(isDefaultAddress);
-
+        if (loaded.length > 0) {
+          const defaultAddress = loaded.find(isDefaultAddress);
           setSelectedAddressId(
-            String(
-              getAddressId(defaultAddress || loadedAddresses[0]) || ""
-            )
+            String(getAddressId(defaultAddress || loaded[0]) || "")
           );
         }
 
         if (!currentDestination) {
-          setDestinationMode(loadedAddresses.length > 0 ? "saved" : "new");
+          setDestinationMode(loaded.length > 0 ? "saved" : "new");
         }
       } catch (error) {
         if (!active) return;
 
         setAddresses([]);
-
-        if (!currentDestination) {
-          setDestinationMode("new");
-        }
+        if (!currentDestination) setDestinationMode("new");
 
         setAddressesError(
           error?.message ||
             "We couldn't load your saved addresses. You can enter a new destination below."
         );
       } finally {
-        if (active) {
-          setAddressesLoading(false);
-        }
+        if (active) setAddressesLoading(false);
       }
     }
 
@@ -557,9 +595,7 @@ export default function ErrandRequestForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* ---------------------------------------------------
-     Field updates
-  --------------------------------------------------- */
+  /* ------------------------------ Field updates ------------------------------ */
 
   function updateField(name, value) {
     setForm((current) => ({ ...current, [name]: value }));
@@ -595,10 +631,7 @@ export default function ErrandRequestForm({
   }
 
   function removeItem(index) {
-    setItems((current) =>
-      current.filter((_, itemIndex) => itemIndex !== index)
-    );
-
+    setItems((current) => current.filter((_, itemIndex) => itemIndex !== index));
     setErrors((current) => ({ ...current, items: "", form: "" }));
   }
 
@@ -618,9 +651,7 @@ export default function ErrandRequestForm({
     setErrors((current) => ({ ...current, destination: "", form: "" }));
   }
 
-  /* ---------------------------------------------------
-     Validation
-  --------------------------------------------------- */
+  /* -------------------------------- Validation -------------------------------- */
 
   function validateDestination(nextErrors) {
     if (destinationMode === "current") return;
@@ -660,11 +691,7 @@ export default function ErrandRequestForm({
       ["state", 100, "The state cannot exceed 100 characters."],
       ["city", 100, "The city cannot exceed 100 characters."],
       ["street", 200, "The street cannot exceed 200 characters."],
-      [
-        "home_address",
-        300,
-        "The house address cannot exceed 300 characters.",
-      ],
+      ["home_address", 300, "The house address cannot exceed 300 characters."],
       ["landmark", 200, "The landmark cannot exceed 200 characters."],
     ];
 
@@ -697,24 +724,19 @@ export default function ErrandRequestForm({
       nextErrors.title = "The title cannot exceed 120 characters.";
     }
 
-    if (!form.category) {
-      nextErrors.category = "Select an errand category.";
-    }
+    if (!form.category) nextErrors.category = "Select an errand category.";
 
     if (form.description.trim().length < 20) {
       nextErrors.description =
         "Describe what you need in at least 20 characters.";
     } else if (form.description.trim().length > 5000) {
-      nextErrors.description =
-        "The description cannot exceed 5,000 characters.";
+      nextErrors.description = "The description cannot exceed 5,000 characters.";
     }
 
     if (!totalIsValid) {
-      nextErrors.estimated_total =
-        "Enter an estimated budget greater than ₦0.";
+      nextErrors.estimated_total = `Enter an estimated budget greater than ${currencySymbol}0.`;
     } else if (estimatedTotal > 1000000000) {
-      nextErrors.estimated_total =
-        "The estimated budget cannot exceed ₦1,000,000,000.";
+      nextErrors.estimated_total = `The estimated budget cannot exceed ${currencySymbol}1,000,000,000.`;
     }
 
     if (form.customer_notes.trim().length > 2000) {
@@ -722,15 +744,23 @@ export default function ErrandRequestForm({
         "Additional instructions cannot exceed 2,000 characters.";
     }
 
-    const maxOffers = Number(form.max_erander_offers);
+    if (form.max_erander_offers.trim() === "") {
+      nextErrors.max_erander_offers =
+        "Enter how many offers you want to receive.";
+    } else {
+      const maxOffers = Number(form.max_erander_offers);
 
-    if (!Number.isInteger(maxOffers) || maxOffers < 1 || maxOffers > 100) {
-      nextErrors.max_erander_offers = "Choose between 1 and 100 offers.";
+      if (
+        !Number.isInteger(maxOffers) ||
+        maxOffers < 1 ||
+        maxOffers > MAX_OFFERS
+      ) {
+        nextErrors.max_erander_offers = `Enter a whole number between 1 and ${MAX_OFFERS}.`;
+      }
     }
 
     if (form.scheduled_for) {
       const scheduledDate = new Date(form.scheduled_for);
-
       const unchanged = isEdit && form.scheduled_for === initialSchedule;
 
       if (
@@ -743,7 +773,6 @@ export default function ErrandRequestForm({
 
     if (form.expires_at) {
       const expiryDate = new Date(form.expires_at);
-
       const unchanged = isEdit && form.expires_at === initialExpiry;
 
       if (
@@ -787,8 +816,7 @@ export default function ErrandRequestForm({
       });
 
       if (invalidItem) {
-        nextErrors.items =
-          "Complete each item name, quantity and estimated unit price. Prices may be ₦0 if unknown.";
+        nextErrors.items = `Complete each item name, quantity and estimated unit price. Prices may be ${currencySymbol}0 if unknown.`;
       }
 
       if (totalIsValid && itemSubtotal > estimatedTotal) {
@@ -824,18 +852,12 @@ export default function ErrandRequestForm({
     setReviewing(true);
   }
 
-  /* ---------------------------------------------------
-     Submit
-  --------------------------------------------------- */
+  /* --------------------------------- Submit --------------------------------- */
 
   function buildDestinationPayload() {
-    if (destinationMode === "current") {
-      return undefined;
-    }
+    if (destinationMode === "current") return undefined;
 
-    if (destinationMode === "saved") {
-      return { address_id: selectedAddressId };
-    }
+    if (destinationMode === "saved") return { address_id: selectedAddressId };
 
     return {
       address: {
@@ -869,7 +891,7 @@ export default function ErrandRequestForm({
       title: form.title.trim(),
       category: form.category,
       description: form.description.trim(),
-      currency_code: currency || "NGN",
+      currency_code: currency,
       estimated_total: estimatedTotal,
       max_erander_offers: Number(form.max_erander_offers),
       scheduled_for: toIsoDateTime(form.scheduled_for),
@@ -902,7 +924,6 @@ export default function ErrandRequestForm({
           : "We couldn't submit your errand. Please try again.");
 
       toast.error(message);
-
       setErrors((current) => ({ ...current, form: message }));
     } finally {
       setSubmitting(false);
@@ -911,13 +932,10 @@ export default function ErrandRequestForm({
 
   function closeReview() {
     if (submitting) return;
-
     setReviewing(false);
   }
 
-  /* ---------------------------------------------------
-     Progress checklist (live)
-  --------------------------------------------------- */
+  /* ------------------------------- Progress ------------------------------- */
 
   const checklist = useMemo(() => {
     const detailsDone =
@@ -945,15 +963,13 @@ export default function ErrandRequestForm({
           Number(item.estimated_unit_price) >= 0
       );
 
-    const budgetDone = totalIsValid;
-
     const entries = [
       { id: "errand-details", label: "Errand details", done: detailsDone },
       { id: "errand-destination", label: "Destination", done: destinationDone },
       ...(isShopping
         ? [{ id: "errand-items", label: "Shopping list", done: itemsDone }]
         : []),
-      { id: "errand-budget", label: "Estimated budget", done: budgetDone },
+      { id: "errand-budget", label: "Estimated budget", done: totalIsValid },
     ];
 
     const completed = entries.filter((entry) => entry.done).length;
@@ -962,6 +978,7 @@ export default function ErrandRequestForm({
       entries,
       completed,
       percent: Math.round((completed / entries.length) * 100),
+      done: Object.fromEntries(entries.map((entry) => [entry.id, entry.done])),
     };
   }, [
     form.title,
@@ -1003,12 +1020,20 @@ export default function ErrandRequestForm({
 
   const submitLabel = isEdit ? "Review changes" : "Review request";
 
-  /* ---------------------------------------------------
-     Render
-  --------------------------------------------------- */
+  // Section numbers shift when the shopping list is shown.
+  const stepOf = {
+    details: 1,
+    destination: 2,
+    items: 3,
+    budget: isShopping ? 4 : 3,
+    schedule: isShopping ? 5 : 4,
+    notes: isShopping ? 6 : 5,
+  };
+
+  /* --------------------------------- Render --------------------------------- */
 
   return (
-    <div className="mx-auto w-full max-w-[1440px] space-y-6 px-0 py-6 sm:px-2 lg:py-8">
+    <div className="mx-auto w-full max-w-[1440px] space-y-6 px-0 pb-6 sm:px-2 lg:py-8">
       <button
         type="button"
         onClick={onCancel}
@@ -1018,69 +1043,58 @@ export default function ErrandRequestForm({
         {backLabel}
       </button>
 
-      {/* Hero */}
-      <header className="overflow-hidden rounded-3xl bg-brand-navy text-content-inverse shadow-erander-card">
-        <div className="px-5 pb-8 pt-6 sm:px-8 sm:pb-9 sm:pt-8">
-          <div className="flex flex-wrap items-center gap-3 text-sm text-white/70">
-            <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-bold tracking-wide text-white">
-              {isEdit
-                ? errandMeta?.reference_code
-                  ? `Ref ${errandMeta.reference_code}`
-                  : "Editing errand"
-                : "New errand"}
-            </span>
-
-            {isEdit && errandMeta?.statusLabel && (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-xs font-bold text-brand-navy">
-                <Clock3 size={13} aria-hidden="true" />
-                {errandMeta.statusLabel}
-              </span>
-            )}
-          </div>
-
-          <h1 className="mt-5 max-w-3xl text-3xl font-extrabold leading-tight tracking-tight sm:text-4xl">
-            {isEdit ? "Edit your errand" : "What do you need help with?"}
-          </h1>
-
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-white/70 sm:text-base">
+      {/* Header */}
+      <header className="rounded-3xl border border-line bg-surface-white p-5 sm:p-8">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-full bg-brand-pale px-3 py-1 text-xs font-extrabold text-success-dark">
             {isEdit
-              ? "Update the request, then review your changes before saving. Everything you set when you placed it can be changed here."
-              : "Describe your errand, set an estimated budget and give eranders enough information to send you good offers."}
-          </p>
+              ? errandMeta?.reference_code
+                ? `Ref ${errandMeta.reference_code}`
+                : "Editing errand"
+              : "New errand"}
+          </span>
+
+          {isEdit && errandMeta?.statusLabel ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-muted px-3 py-1 text-xs font-bold text-content-muted">
+              <Clock3 size={13} aria-hidden="true" />
+              {errandMeta.statusLabel}
+            </span>
+          ) : null}
         </div>
 
-        <dl className="grid grid-cols-2 gap-px bg-white/10 lg:grid-cols-4">
-          <div className="bg-brand-navy px-5 py-4 sm:px-8">
-            <dt className="text-sm text-white/70">Estimated budget</dt>
-            <dd className="mt-1 break-words text-xl font-extrabold tabular-nums text-brand-mint">
-              {totalIsValid ? formatNaira(estimatedTotal) : "Not set yet"}
-            </dd>
-          </div>
+        <h1 className="mt-4 max-w-3xl text-2xl font-extrabold leading-tight tracking-tight text-brand-navy sm:text-4xl">
+          {isEdit ? "Edit your errand" : "What do you need help with?"}
+        </h1>
 
-          <div className="bg-brand-navy px-5 py-4 sm:px-8">
-            <dt className="text-sm text-white/70">Shopping items</dt>
-            <dd className="mt-1 text-xl font-extrabold tabular-nums">
-              {isShopping ? items.length : "Not needed"}
-            </dd>
-          </div>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-content-muted sm:text-base">
+          {isEdit
+            ? "Update the request, then review your changes before saving."
+            : "Describe your errand, set an estimated budget and give eranders enough information to send you good offers."}
+        </p>
 
-          <div className="bg-brand-navy px-5 py-4 sm:px-8">
-            <dt className="text-sm text-white/70">Preferred time</dt>
-            <dd className="mt-1 text-xl font-extrabold">
-              {formatDateTime(form.scheduled_for)}
-            </dd>
-          </div>
-
-          <div className="bg-brand-navy px-5 py-4 sm:px-8">
-            <dt className="text-sm text-white/70">Offers you will see</dt>
-            <dd className="mt-1 text-xl font-extrabold tabular-nums">
-              Up to {form.max_erander_offers || "—"}
-            </dd>
-          </div>
+        <dl className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <Tile
+            label="Estimated budget"
+            value={
+              totalIsValid
+                ? formatCurrency(estimatedTotal, currency)
+                : "Not set yet"
+            }
+            tone={totalIsValid ? "good" : "default"}
+          />
+          <Tile
+            label="Shopping items"
+            value={isShopping ? items.length : "Not needed"}
+          />
+          <Tile label="Preferred time" value={formatDateTime(form.scheduled_for)} />
+          <Tile
+            label="Offers you will see"
+            value={`Up to ${form.max_erander_offers || "—"}`}
+          />
         </dl>
       </header>
 
-      {!editable && (
+      {!editable ? (
         <div
           role="status"
           className="flex items-start gap-3 rounded-r-2xl border-l-4 border-amber-400 bg-amber-50 p-4 sm:p-5"
@@ -1095,28 +1109,26 @@ export default function ErrandRequestForm({
             <h2 className="font-extrabold text-amber-950">
               This errand can no longer be edited
             </h2>
-
             <p className="mt-1 text-sm leading-6 text-amber-900">
               {lockedMessage ||
                 "Requests can only be edited before they are funded. The details below are shown for reference."}
             </p>
           </div>
         </div>
-      )}
+      ) : null}
 
       <form onSubmit={handleReview} noValidate>
         <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
-          {/* Form sheet */}
+          {/* Sections */}
           <div className="min-w-0">
-            <fieldset
-              disabled={locked}
-              className="m-0 min-w-0 divide-y divide-line-soft rounded-3xl border border-line bg-surface-white px-5 py-8 shadow-erander-card sm:px-8 sm:py-10"
-            >
+            <fieldset disabled={locked} className="m-0 min-w-0 space-y-5 border-0 p-0">
               <legend className="sr-only">Errand request</legend>
 
               {/* Details */}
               <FormSection
                 id="errand-details"
+                step={stepOf.details}
+                done={checklist.done["errand-details"]}
                 title="Errand details"
                 description="Start with the essentials so the right eranders understand your request."
               >
@@ -1132,16 +1144,13 @@ export default function ErrandRequestForm({
                       id="errand-title"
                       type="text"
                       value={form.title}
-                      onChange={(event) =>
-                        updateField("title", event.target.value)
-                      }
+                      onChange={(event) => updateField("title", event.target.value)}
                       maxLength={120}
                       placeholder="What do you need done?"
                       className={inputClass}
                       aria-invalid={Boolean(errors.title)}
                     />
-
-                    <p className="mt-1 text-right text-xs text-content-subtle">
+                    <p className="mt-1 text-right text-xs tabular-nums text-content-subtle">
                       {form.title.length}/120
                     </p>
                   </FormField>
@@ -1149,7 +1158,7 @@ export default function ErrandRequestForm({
                   <div>
                     <p className={labelClass} id="category-label">
                       Category
-                      <span className="ml-1 text-red-500" aria-hidden="true">
+                      <span className="ml-1 text-rose-500" aria-hidden="true">
                         *
                       </span>
                       <span className="sr-only"> (required)</span>
@@ -1178,21 +1187,20 @@ export default function ErrandRequestForm({
                                 : "border-line bg-surface-white hover:border-line-strong",
                             ].join(" ")}
                           >
-                            <Icon
-                              size={20}
-                              className={`mt-0.5 shrink-0 ${
+                            <span
+                              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
                                 selected
-                                  ? "text-brand-navy"
-                                  : "text-content-subtle"
+                                  ? "bg-brand-navy text-brand-mint"
+                                  : "bg-surface-muted text-content-muted"
                               }`}
-                              aria-hidden="true"
-                            />
+                            >
+                              <Icon size={17} aria-hidden="true" />
+                            </span>
 
                             <span className="min-w-0">
                               <span className="block text-sm font-extrabold text-content">
                                 {category.label}
                               </span>
-
                               <span className="mt-0.5 block text-xs leading-5 text-content-muted">
                                 {category.description}
                               </span>
@@ -1224,8 +1232,7 @@ export default function ErrandRequestForm({
                       className={`${inputClass} min-h-32 resize-y`}
                       aria-invalid={Boolean(errors.description)}
                     />
-
-                    <p className="mt-1 text-right text-xs text-content-subtle">
+                    <p className="mt-1 text-right text-xs tabular-nums text-content-subtle">
                       {form.description.length}/5000
                     </p>
                   </FormField>
@@ -1235,18 +1242,19 @@ export default function ErrandRequestForm({
               {/* Destination */}
               <FormSection
                 id="errand-destination"
+                step={stepOf.destination}
+                done={checklist.done["errand-destination"]}
                 title="Destination address"
                 description="Tell your erander where the errand should be completed or delivered."
               >
                 <Callout icon={MapPin}>
                   Choose the destination carefully. The address stays with this
-                  errand so the erander knows exactly where the task takes
-                  place.
+                  errand so the erander knows exactly where the task takes place.
                 </Callout>
 
                 {addressesLoading ? (
                   <div
-                    className="mt-6 flex items-center gap-3 rounded-2xl bg-surface p-5 text-sm text-content-muted"
+                    className="mt-6 flex items-center gap-3 rounded-2xl bg-surface-muted/60 p-5 text-sm text-content-muted"
                     role="status"
                   >
                     <LoaderCircle
@@ -1258,13 +1266,13 @@ export default function ErrandRequestForm({
                   </div>
                 ) : (
                   <>
-                    {addressesError && (
+                    {addressesError ? (
                       <div className="mt-5">
                         <Callout icon={AlertCircle} tone="amber">
                           {addressesError}
                         </Callout>
                       </div>
-                    )}
+                    ) : null}
 
                     <div
                       className={`mt-6 grid gap-3 ${
@@ -1273,23 +1281,23 @@ export default function ErrandRequestForm({
                           : "sm:grid-cols-2"
                       }`}
                     >
-                      {currentDestination && (
+                      {currentDestination ? (
                         <ChoiceTile
                           selected={destinationMode === "current"}
                           onClick={() => chooseDestinationMode("current")}
                           title="Keep current destination"
                           description="Leave the destination as it is."
                         />
-                      )}
+                      ) : null}
 
-                      {addresses.length > 0 && (
+                      {addresses.length > 0 ? (
                         <ChoiceTile
                           selected={destinationMode === "saved"}
                           onClick={() => chooseDestinationMode("saved")}
                           title="Use a saved address"
                           description="Pick one saved to your profile."
                         />
-                      )}
+                      ) : null}
 
                       <ChoiceTile
                         selected={destinationMode === "new"}
@@ -1299,20 +1307,19 @@ export default function ErrandRequestForm({
                       />
                     </div>
 
-                    {destinationMode === "current" && currentDestination && (
-                      <div className="mt-5 rounded-2xl bg-surface p-4">
+                    {destinationMode === "current" && currentDestination ? (
+                      <div className="mt-5 rounded-2xl bg-surface-muted/60 p-4">
                         <p className="text-sm font-extrabold text-content">
                           {currentDestination.label}
                         </p>
-
                         <p className="mt-1 break-words text-sm leading-6 text-content-muted">
                           {currentDestination.description ||
                             "Address details unavailable"}
                         </p>
                       </div>
-                    )}
+                    ) : null}
 
-                    {destinationMode === "saved" && addresses.length > 0 && (
+                    {destinationMode === "saved" && addresses.length > 0 ? (
                       <ul
                         className="mt-5 max-h-80 divide-y divide-line-soft overflow-y-auto rounded-2xl border border-line"
                         role="radiogroup"
@@ -1320,8 +1327,7 @@ export default function ErrandRequestForm({
                       >
                         {addresses.map((address) => {
                           const addressId = String(getAddressId(address));
-                          const selected =
-                            addressId === String(selectedAddressId);
+                          const selected = addressId === String(selectedAddressId);
 
                           return (
                             <li key={addressId}>
@@ -1330,7 +1336,7 @@ export default function ErrandRequestForm({
                                   "flex cursor-pointer items-start gap-3 p-4 transition",
                                   selected
                                     ? "bg-brand-pale"
-                                    : "bg-surface-white hover:bg-surface",
+                                    : "bg-surface-white hover:bg-surface-muted/60",
                                 ].join(" ")}
                               >
                                 <input
@@ -1355,11 +1361,11 @@ export default function ErrandRequestForm({
                                       {getAddressLabel(address)}
                                     </span>
 
-                                    {isDefaultAddress(address) && (
-                                      <span className="rounded-full bg-surface-white px-2 py-0.5 text-xs font-bold text-success-dark">
+                                    {isDefaultAddress(address) ? (
+                                      <span className="rounded-full bg-surface-white px-2 py-0.5 text-xs font-bold text-success-dark ring-1 ring-inset ring-line">
                                         Default
                                       </span>
-                                    )}
+                                    ) : null}
                                   </span>
 
                                   <span className="mt-1 block break-words text-xs leading-5 text-content-muted">
@@ -1371,14 +1377,13 @@ export default function ErrandRequestForm({
                           );
                         })}
                       </ul>
-                    )}
+                    ) : null}
 
-                    {destinationMode === "new" && (
-                      <div className="mt-6 rounded-2xl bg-surface p-4 sm:p-6">
+                    {destinationMode === "new" ? (
+                      <div className="mt-6 rounded-2xl bg-surface-muted/50 p-4 sm:p-6">
                         <h3 className="text-base font-extrabold text-content">
                           New destination
                         </h3>
-
                         <p className="mt-1 text-sm leading-6 text-content-muted">
                           Enter a complete address so your erander can find the
                           right place.
@@ -1423,9 +1428,7 @@ export default function ErrandRequestForm({
                               }
                               placeholder="Choose location type"
                               aria-label="Location type"
-                              aria-invalid={Boolean(
-                                errors.address_location_type
-                              )}
+                              aria-invalid={Boolean(errors.address_location_type)}
                             />
                           </FormField>
 
@@ -1439,10 +1442,7 @@ export default function ErrandRequestForm({
                               id="address-country"
                               value={newAddress.country}
                               onChange={(event) =>
-                                updateAddressField(
-                                  "country",
-                                  event.target.value
-                                )
+                                updateAddressField("country", event.target.value)
                               }
                               maxLength={100}
                               placeholder="Nigeria"
@@ -1527,9 +1527,7 @@ export default function ErrandRequestForm({
                                 maxLength={300}
                                 placeholder="e.g. 12 Example Street, Rumuola"
                                 className={inputClass}
-                                aria-invalid={Boolean(
-                                  errors.address_home_address
-                                )}
+                                aria-invalid={Boolean(errors.address_home_address)}
                               />
                             </FormField>
                           </div>
@@ -1545,10 +1543,7 @@ export default function ErrandRequestForm({
                                 id="address-landmark"
                                 value={newAddress.landmark}
                                 onChange={(event) =>
-                                  updateAddressField(
-                                    "landmark",
-                                    event.target.value
-                                  )
+                                  updateAddressField("landmark", event.target.value)
                                 }
                                 maxLength={200}
                                 placeholder="e.g. Near the main junction"
@@ -1568,10 +1563,7 @@ export default function ErrandRequestForm({
                                 const checked = event.target.checked;
 
                                 setSaveAddress(checked);
-
-                                if (!checked) {
-                                  setMakeDefaultAddress(false);
-                                }
+                                if (!checked) setMakeDefaultAddress(false);
 
                                 setErrors((current) => ({
                                   ...current,
@@ -1586,21 +1578,19 @@ export default function ErrandRequestForm({
                               <span className="block text-sm font-bold text-content">
                                 Save this address to my profile
                               </span>
-
                               <span className="mt-0.5 block text-xs leading-5 text-content-muted">
                                 Reuse it for future errands.
                               </span>
                             </span>
                           </label>
 
-                          {saveAddress && (
+                          {saveAddress ? (
                             <label className="ml-7 flex cursor-pointer items-start gap-3">
                               <input
                                 type="checkbox"
                                 checked={makeDefaultAddress}
                                 onChange={(event) => {
                                   setMakeDefaultAddress(event.target.checked);
-
                                   setErrors((current) => ({
                                     ...current,
                                     destination: "",
@@ -1614,16 +1604,15 @@ export default function ErrandRequestForm({
                                 <span className="block text-sm font-bold text-content">
                                   Make this my default address
                                 </span>
-
                                 <span className="mt-0.5 block text-xs leading-5 text-content-muted">
                                   Preselect it for future requests.
                                 </span>
                               </span>
                             </label>
-                          )}
+                          ) : null}
                         </div>
                       </div>
-                    )}
+                    ) : null}
                   </>
                 )}
 
@@ -1631,32 +1620,42 @@ export default function ErrandRequestForm({
               </FormSection>
 
               {/* Shopping items */}
-              {isShopping && (
+              {isShopping ? (
                 <FormSection
                   id="errand-items"
+                  step={stepOf.items}
+                  done={checklist.done["errand-items"]}
                   title="Shopping list"
                   description="List the items you need and their estimated prices."
                 >
                   <Callout icon={ShoppingBag}>
-                    Item prices are estimates. They do not authorise spending
-                    above your approved budget, and material changes should be
-                    approved first.
+                    Item prices are estimates. They do not authorise spending above
+                    your approved budget, and material changes should be approved
+                    first.
                   </Callout>
 
-                  {items.length > 0 && (
-                    <ul className="mt-5 divide-y divide-line-soft border-y border-line-soft">
+                  {items.length > 0 ? (
+                    <ul className="mt-5 space-y-3">
                       {items.map((item, index) => (
-                        <li key={index} className="py-6">
+                        <li
+                          key={index}
+                          className="rounded-2xl border border-line bg-surface-white p-4 sm:p-5"
+                        >
                           <div className="mb-4 flex items-center justify-between gap-3">
-                            <h3 className="truncate text-base font-extrabold text-content">
-                              {item.item_name.trim() || `Item ${index + 1}`}
+                            <h3 className="flex min-w-0 items-center gap-2.5 text-sm font-extrabold text-content">
+                              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-surface-muted text-[11px] font-extrabold text-content-muted">
+                                {index + 1}
+                              </span>
+                              <span className="truncate">
+                                {item.item_name.trim() || `Item ${index + 1}`}
+                              </span>
                             </h3>
 
                             <button
                               type="button"
                               onClick={() => removeItem(index)}
                               aria-label={`Remove item ${index + 1}`}
-                              className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-bold text-red-600 transition hover:bg-red-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+                              className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-bold text-rose-600 transition hover:bg-rose-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
                             >
                               <Minus size={14} aria-hidden="true" />
                               Remove
@@ -1673,11 +1672,7 @@ export default function ErrandRequestForm({
                                 id={`item-name-${index}`}
                                 value={item.item_name}
                                 onChange={(event) =>
-                                  updateItem(
-                                    index,
-                                    "item_name",
-                                    event.target.value
-                                  )
+                                  updateItem(index, "item_name", event.target.value)
                                 }
                                 maxLength={200}
                                 placeholder="e.g. Rice, bread or cooking oil"
@@ -1697,11 +1692,7 @@ export default function ErrandRequestForm({
                                 id={`item-description-${index}`}
                                 value={item.description}
                                 onChange={(event) =>
-                                  updateItem(
-                                    index,
-                                    "description",
-                                    event.target.value
-                                  )
+                                  updateItem(index, "description", event.target.value)
                                 }
                                 maxLength={1000}
                                 placeholder="e.g. 5kg bag, preferred brand"
@@ -1722,11 +1713,7 @@ export default function ErrandRequestForm({
                                 step="1"
                                 value={item.quantity}
                                 onChange={(event) =>
-                                  updateItem(
-                                    index,
-                                    "quantity",
-                                    event.target.value
-                                  )
+                                  updateItem(index, "quantity", event.target.value)
                                 }
                                 className={inputClass}
                                 aria-invalid={Boolean(
@@ -1739,14 +1726,14 @@ export default function ErrandRequestForm({
                             </FormField>
 
                             <FormField
-                              label="Estimated unit price (₦)"
+                              label={`Estimated unit price (${currencySymbol})`}
                               required
                               htmlFor={`item-price-${index}`}
                               hint="Enter 0 if you don't know the price yet."
                             >
                               <div className="relative">
                                 <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4 text-sm font-bold text-content-subtle">
-                                  ₦
+                                  {currencySymbol}
                                 </span>
 
                                 <input
@@ -1767,9 +1754,8 @@ export default function ErrandRequestForm({
                                   className={`${inputClass} pl-9`}
                                   aria-invalid={Boolean(
                                     errors.items &&
-                                      (String(
-                                        item.estimated_unit_price
-                                      ).trim() === "" ||
+                                      (String(item.estimated_unit_price).trim() ===
+                                        "" ||
                                         !Number.isFinite(
                                           Number(item.estimated_unit_price)
                                         ) ||
@@ -1803,25 +1789,25 @@ export default function ErrandRequestForm({
                             </div>
                           </div>
 
-                          <p className="mt-4 flex items-baseline justify-between gap-4 text-sm">
+                          <p className="mt-4 flex items-baseline justify-between gap-4 rounded-xl bg-surface-muted/60 px-4 py-2.5 text-sm">
                             <span className="text-content-muted">
                               Estimated line total
                             </span>
-
                             <span className="font-extrabold tabular-nums text-content">
-                              {formatNaira(
+                              {formatCurrency(
                                 Math.max(0, Number(item.quantity) || 0) *
                                   Math.max(
                                     0,
                                     Number(item.estimated_unit_price) || 0
-                                  )
+                                  ),
+                                currency
                               )}
                             </span>
                           </p>
                         </li>
                       ))}
                     </ul>
-                  )}
+                  ) : null}
 
                   <FieldError>{errors.items}</FieldError>
 
@@ -1838,21 +1824,23 @@ export default function ErrandRequestForm({
                     <p className="text-sm text-content-muted">
                       Items add up to{" "}
                       <span className="ml-1 text-lg font-extrabold tabular-nums text-content">
-                        {formatNaira(itemSubtotal)}
+                        {formatCurrency(itemSubtotal, currency)}
                       </span>
                     </p>
                   </div>
                 </FormSection>
-              )}
+              ) : null}
 
               {/* Budget */}
               <FormSection
                 id="errand-budget"
+                step={stepOf.budget}
+                done={checklist.done["errand-budget"]}
                 title="Estimated budget"
                 description="Set the total amount you expect to spend on this errand."
               >
                 <FormField
-                  label="Total estimated budget (₦)"
+                  label={`Total estimated budget (${currencySymbol})`}
                   required
                   htmlFor="estimated-budget"
                   error={errors.estimated_total}
@@ -1860,7 +1848,7 @@ export default function ErrandRequestForm({
                 >
                   <div className="relative sm:max-w-sm">
                     <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4 text-sm font-extrabold text-content-muted">
-                      ₦
+                      {currencySymbol}
                     </span>
 
                     <input
@@ -1880,13 +1868,23 @@ export default function ErrandRequestForm({
                   </div>
                 </FormField>
 
-                {isShopping && totalIsValid && itemSubtotal > 0 && (
+                {isShopping && itemSubtotal > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateField("estimated_total", String(itemSubtotal))
+                    }
+                    className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-surface-muted px-3.5 py-2 text-xs font-bold text-content-muted transition hover:text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy"
+                  >
+                    <ClipboardList size={13} aria-hidden="true" />
+                    Use items total ({formatCurrency(itemSubtotal, currency)})
+                  </button>
+                ) : null}
+
+                {isShopping && totalIsValid && itemSubtotal > 0 ? (
                   <div className="mt-5 sm:max-w-sm">
                     <div className="flex items-baseline justify-between gap-3 text-sm">
-                      <span className="text-content-muted">
-                        Shopping list uses
-                      </span>
-
+                      <span className="text-content-muted">Shopping list uses</span>
                       <span className="font-bold tabular-nums text-content">
                         {budgetUsage.toFixed(0)}% of budget
                       </span>
@@ -1910,7 +1908,7 @@ export default function ErrandRequestForm({
                       />
                     </div>
                   </div>
-                )}
+                ) : null}
 
                 <div className="mt-5">
                   <Callout icon={Info} tone="amber">
@@ -1924,6 +1922,8 @@ export default function ErrandRequestForm({
               {/* Schedule */}
               <FormSection
                 id="errand-schedule"
+                step={stepOf.schedule}
+                done={false}
                 title="Schedule and offers"
                 description="Choose when you need the errand done and how many offers you want to receive."
               >
@@ -1940,7 +1940,6 @@ export default function ErrandRequestForm({
                         className="pointer-events-none absolute left-3.5 top-3.5 text-content-subtle"
                         aria-hidden="true"
                       />
-
                       <input
                         id="scheduled-for"
                         type="datetime-local"
@@ -1967,7 +1966,6 @@ export default function ErrandRequestForm({
                         className="pointer-events-none absolute left-3.5 top-3.5 text-content-subtle"
                         aria-hidden="true"
                       />
-
                       <input
                         id="expires-at"
                         type="datetime-local"
@@ -1983,27 +1981,47 @@ export default function ErrandRequestForm({
                   </FormField>
                 </div>
 
-                <div className="mt-5 sm:max-w-sm">
+                <div className="mt-5 sm:max-w-xs">
                   <FormField
                     label="Maximum number of offers"
                     required
+                    htmlFor="max-offers"
                     error={errors.max_erander_offers}
-                    hint="Choose how many eranders may send an offer, from 1 to 100."
+                    hint={`Choose how many eranders may send an offer, between 1 and ${MAX_OFFERS}. Whole numbers only.`}
                   >
-                    <Select
-                      options={OFFER_OPTIONS}
-                      value={form.max_erander_offers}
-                      onChange={(value) =>
-                        updateField(
-                          "max_erander_offers",
-                          Array.isArray(value)
-                            ? String(value[0] ?? "5")
-                            : String(value ?? "")
-                        )
-                      }
-                      placeholder="Select maximum offers"
-                      aria-label="Maximum number of offers"
-                    />
+                    <div className="relative">
+                      <input
+                        id="max-offers"
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        autoComplete="off"
+                        value={form.max_erander_offers}
+                        onChange={(event) =>
+                          updateField(
+                            "max_erander_offers",
+                            sanitizeMaxOffers(event.target.value)
+                          )
+                        }
+                        onPaste={(event) => {
+                          // Replace paste content with the sanitised value
+                          // so pasted `2.8` or `150` never appears in the field.
+                          event.preventDefault();
+                          updateField(
+                            "max_erander_offers",
+                            sanitizeMaxOffers(
+                              window.clipboardData?.getData("text") ??
+                                event.clipboardData?.getData("text") ??
+                                ""
+                            )
+                          );
+                        }}
+                        placeholder="e.g. 5"
+                        maxLength={3}
+                        className={inputClass}
+                        aria-invalid={Boolean(errors.max_erander_offers)}
+                      />
+                    </div>
                   </FormField>
                 </div>
               </FormSection>
@@ -2011,6 +2029,8 @@ export default function ErrandRequestForm({
               {/* Notes */}
               <FormSection
                 id="errand-notes"
+                step={stepOf.notes}
+                done={false}
                 title="Additional instructions"
                 description="Share helpful details that make the errand easier to complete."
               >
@@ -2032,26 +2052,24 @@ export default function ErrandRequestForm({
                     className={`${inputClass} min-h-28 resize-y`}
                     aria-invalid={Boolean(errors.customer_notes)}
                   />
-
-                  <p className="mt-1 text-right text-xs text-content-subtle">
+                  <p className="mt-1 text-right text-xs tabular-nums text-content-subtle">
                     {form.customer_notes.length}/2000
                   </p>
                 </FormField>
               </FormSection>
             </fieldset>
 
-            {errors.form && (
+            {errors.form ? (
               <div
                 role="alert"
-                className="mt-5 rounded-r-2xl border-l-4 border-red-500 bg-red-50 p-4 text-sm font-medium text-red-800"
+                className="mt-5 rounded-r-2xl border-l-4 border-rose-500 bg-rose-50 p-4 text-sm font-medium text-rose-900"
               >
                 {errors.form}
               </div>
-            )}
+            ) : null}
 
             {/* Mobile and tablet action bar */}
-            <div className="sticky bottom-3 z-10 mt-6 flex flex-col-reverse gap-3 rounded-3xl border border-line bg-surface-white/95 p-3 shadow-erander-card backdrop-blur sm:flex-row sm:items-center sm:justify-between xl:hidden">
-												
+            <div className="sticky bottom-3 z-10 mt-6 flex flex-col-reverse gap-3 rounded-3xl border border-line bg-surface-white/95 p-3 shadow-[0_16px_45px_rgba(9,20,38,0.14)] backdrop-blur sm:flex-row sm:items-center sm:justify-between xl:hidden">
               <button
                 type="button"
                 onClick={onCancel}
@@ -2076,13 +2094,12 @@ export default function ErrandRequestForm({
           <aside className="min-w-0 space-y-5 xl:sticky xl:top-6">
             <section
               aria-label="Request progress"
-              className="rounded-3xl border border-line bg-surface-white p-5 shadow-erander-card sm:p-6"
+              className="rounded-3xl border border-line bg-surface-white p-5 sm:p-6"
             >
               <div className="flex items-baseline justify-between gap-3">
-                <h2 className="text-lg font-extrabold tracking-tight text-content">
+                <h2 className="text-base font-extrabold tracking-tight text-content">
                   Your request
                 </h2>
-
                 <p className="text-sm font-bold tabular-nums text-content-muted">
                   {checklist.completed} of {checklist.entries.length} ready
                 </p>
@@ -2102,7 +2119,7 @@ export default function ErrandRequestForm({
                 />
               </div>
 
-              <ul className="mt-4 divide-y divide-line-soft">
+              <ul className="mt-3 divide-y divide-line-soft">
                 {checklist.entries.map((entry) => (
                   <li key={entry.id}>
                     <button
@@ -2118,7 +2135,7 @@ export default function ErrandRequestForm({
                         }`}
                         aria-hidden="true"
                       >
-                        {entry.done && <Check size={13} strokeWidth={3} />}
+                        {entry.done ? <Check size={13} strokeWidth={3} /> : null}
                       </span>
 
                       <span className="flex-1">{entry.label}</span>
@@ -2134,13 +2151,13 @@ export default function ErrandRequestForm({
 
             <section
               aria-label="Summary"
-              className="rounded-3xl bg-surface p-5 sm:p-6"
+              className="rounded-3xl border border-line bg-surface-white p-5 sm:p-6"
             >
-              <h2 className="text-lg font-extrabold tracking-tight text-content">
+              <h2 className="text-base font-extrabold tracking-tight text-content">
                 At a glance
               </h2>
 
-              <dl className="mt-3 divide-y divide-dashed divide-line-strong border-y border-dashed border-line-strong">
+              <dl className="mt-3 divide-y divide-line-soft border-y border-line-soft">
                 <div className="flex items-baseline justify-between gap-4 py-2.5 text-sm">
                   <dt className="text-content-muted">Category</dt>
                   <dd className="text-right font-semibold text-content">
@@ -2155,14 +2172,14 @@ export default function ErrandRequestForm({
                   </dd>
                 </div>
 
-                {isShopping && (
+                {isShopping ? (
                   <div className="flex items-baseline justify-between gap-4 py-2.5 text-sm">
                     <dt className="text-content-muted">Items subtotal</dt>
                     <dd className="font-semibold tabular-nums text-content">
-                      {formatNaira(itemSubtotal)}
+                      {formatCurrency(itemSubtotal, currency)}
                     </dd>
                   </div>
-                )}
+                ) : null}
 
                 <div className="flex items-baseline justify-between gap-4 py-2.5 text-sm">
                   <dt className="text-content-muted">Max offers</dt>
@@ -2174,9 +2191,8 @@ export default function ErrandRequestForm({
 
               <div className="mt-4 flex items-baseline justify-between gap-3">
                 <p className="font-bold text-content">Estimated budget</p>
-
                 <p className="text-2xl font-extrabold tracking-tight tabular-nums text-content">
-                  {totalIsValid ? formatNaira(estimatedTotal) : "—"}
+                  {totalIsValid ? formatCurrency(estimatedTotal, currency) : "—"}
                 </p>
               </div>
 
@@ -2203,7 +2219,7 @@ export default function ErrandRequestForm({
 
             <section
               aria-label="Good to know"
-              className="rounded-3xl border-l-4 border-brand-green bg-brand-pale p-5 sm:p-6"
+              className="rounded-r-3xl border-l-4 border-brand-green bg-brand-pale p-5 sm:p-6"
             >
               <h2 className="flex items-center gap-2 font-extrabold text-brand-navy">
                 <ShieldCheck size={18} aria-hidden="true" />
@@ -2224,17 +2240,73 @@ export default function ErrandRequestForm({
       <Modal
         isOpen={reviewing}
         onClose={closeReview}
+        dismissible={!submitting}
+        loading={submitting}
+        icon={ClipboardList}
         title={isEdit ? "Review your changes" : "Review your request"}
+        subtitle={isEdit ? "Before saving" : "Before submitting"}
         description={
           isEdit
             ? "Check the details below before saving."
             : "Check the details below before submitting."
         }
-        size="2xl"
-        closeOnOverlayClick={!submitting}
-        closeOnEscape={!submitting}
+        size="lg"
+        position="bottom"
+        sizeStorageKey="user.errandReview"
+        footer={
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={closeReview}
+              className={secondaryButtonClass}
+            >
+              Go back and edit
+            </button>
+
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={handleSubmit}
+              className={primaryButtonClass}
+            >
+              {submitting ? (
+                <>
+                  <LoaderCircle
+                    size={16}
+                    className="animate-spin"
+                    aria-hidden="true"
+                  />
+                  {isEdit ? "Saving..." : "Submitting..."}
+                </>
+              ) : isEdit ? (
+                <>
+                  <Save size={16} aria-hidden="true" />
+                  Save changes
+                </>
+              ) : (
+                <>
+                  Submit request
+                  <ArrowRight size={16} aria-hidden="true" />
+                </>
+              )}
+            </button>
+          </div>
+        }
       >
-        <div className="max-h-[65dvh] overflow-y-auto pr-1">
+        <div className="space-y-5 pb-1">
+          <div className="rounded-3xl border border-l-4 border-line border-l-success bg-surface-white p-5">
+            <p className="text-xs font-semibold text-content-muted">
+              Estimated total budget
+            </p>
+            <p className="mt-1 break-words text-3xl font-extrabold tracking-tight tabular-nums text-content sm:text-4xl">
+              {formatCurrency(estimatedTotal, currency)}
+            </p>
+            <p className="mt-2 text-xs leading-5 text-content-muted">
+              An estimate only. It does not authorise payment.
+            </p>
+          </div>
+
           <dl className="divide-y divide-line-soft border-y border-line-soft">
             <SummaryRow label="Title">{form.title}</SummaryRow>
 
@@ -2252,38 +2324,37 @@ export default function ErrandRequestForm({
               {destinationSummary ? (
                 <div>
                   <p className="font-extrabold">{destinationSummary.label}</p>
-
                   <p className="mt-1 break-words font-medium leading-6 text-content-muted">
                     {destinationSummary.description}
                   </p>
 
-                  {destinationMode === "current" && (
+                  {destinationMode === "current" ? (
                     <p className="mt-2 text-xs font-semibold text-content-muted">
                       The destination stays as it is.
                     </p>
-                  )}
+                  ) : null}
 
-                  {destinationMode === "new" && saveAddress && (
-                    <p className="mt-2 text-xs font-bold text-success">
+                  {destinationMode === "new" && saveAddress ? (
+                    <p className="mt-2 text-xs font-bold text-success-dark">
                       This address will be saved to your profile.
                       {makeDefaultAddress
                         ? " It will also become your default address."
                         : ""}
                     </p>
-                  )}
+                  ) : null}
 
-                  {destinationMode === "new" && !saveAddress && (
+                  {destinationMode === "new" && !saveAddress ? (
                     <p className="mt-2 text-xs font-semibold text-content-muted">
                       This address will be used for this errand only.
                     </p>
-                  )}
+                  ) : null}
                 </div>
               ) : (
                 "No destination selected"
               )}
             </SummaryRow>
 
-            {isShopping && (
+            {isShopping ? (
               <SummaryRow label="Shopping items">
                 <ul className="space-y-2">
                   {items.map((item, index) => (
@@ -2294,113 +2365,54 @@ export default function ErrandRequestForm({
                       <span className="min-w-0 break-words font-medium text-content-muted">
                         {item.quantity} × {item.item_name}
                       </span>
-
                       <span className="shrink-0 font-bold tabular-nums text-content">
-                        {formatNaira(
+                        {formatCurrency(
                           Number(item.quantity) *
-                            Number(item.estimated_unit_price)
+                            Number(item.estimated_unit_price),
+                          currency
                         )}
                       </span>
                     </li>
                   ))}
                 </ul>
               </SummaryRow>
-            )}
+            ) : null}
 
-            <SummaryRow label="Maximum offers">
-              {form.max_erander_offers}
-            </SummaryRow>
+            <SummaryRow label="Maximum offers">{form.max_erander_offers}</SummaryRow>
 
             <SummaryRow label="Preferred schedule">
               {formatDateTime(form.scheduled_for)}
             </SummaryRow>
 
-            {form.expires_at && (
+            {form.expires_at ? (
               <SummaryRow label="Request expiry">
                 {formatDateTime(form.expires_at)}
               </SummaryRow>
-            )}
+            ) : null}
 
-            {form.customer_notes.trim() && (
+            {form.customer_notes.trim() ? (
               <SummaryRow label="Additional instructions">
                 <span className="whitespace-pre-wrap break-words font-medium leading-6">
                   {form.customer_notes}
                 </span>
               </SummaryRow>
-            )}
+            ) : null}
           </dl>
 
-          <div className="mt-5 flex items-baseline justify-between gap-4 rounded-2xl bg-brand-navy p-5 text-content-inverse">
-            <div>
-              <p className="text-sm font-semibold text-white/70">
-                Estimated total budget
-              </p>
+          <Callout icon={Wallet}>
+            {isEdit
+              ? "Saving these changes does not authorise a payment. Funding is handled separately."
+              : "Submitting this request does not itself authorise a payment. Review any funding terms separately before authorising them."}
+          </Callout>
 
-              <p className="mt-0.5 text-xs text-white/70">
-                An estimate only. It does not authorise payment.
-              </p>
-            </div>
-
-            <p className="text-2xl font-extrabold tracking-tight tabular-nums">
-              {formatNaira(estimatedTotal)}
-            </p>
-          </div>
-
-          <div className="mt-5">
-            <Callout icon={Wallet}>
-              {isEdit
-                ? "Saving these changes does not authorise a payment. Funding is handled separately."
-                : "Submitting this request does not itself authorise a payment. Review any funding terms separately before authorising them."}
-            </Callout>
-          </div>
-
-          {errors.form && (
+          {errors.form ? (
             <p
               role="alert"
-              className="mt-4 rounded-r-2xl border-l-4 border-red-500 bg-red-50 p-4 text-sm font-medium text-red-800"
+              className="rounded-r-2xl border-l-4 border-rose-500 bg-rose-50 p-4 text-sm font-medium text-rose-900"
             >
               {errors.form}
             </p>
-          )}
-        </div>
-
-        <div className="mt-6 flex flex-col-reverse gap-3 border-t border-line-soft pt-5 sm:flex-row sm:justify-end">
-          <button
-            type="button"
-            disabled={submitting}
-            onClick={closeReview}
-            className={secondaryButtonClass}
-          >
-            Go back and edit
-          </button>
-
-          <button
-            type="button"
-            disabled={submitting}
-            onClick={handleSubmit}
-            className={primaryButtonClass}
-          >
-            {submitting ? (
-              <>
-                <LoaderCircle
-                  size={16}
-                  className="animate-spin"
-                  aria-hidden="true"
-                />
-                {isEdit ? "Saving..." : "Submitting..."}
-              </>
-            ) : isEdit ? (
-              <>
-                <Save size={16} aria-hidden="true" />
-                Save changes
-              </>
-            ) : (
-              <>
-                Submit request
-                <ArrowRight size={16} aria-hidden="true" />
-              </>
-            )}
-          </button>
+          ) : null}
         </div>
       </Modal>
     </div>

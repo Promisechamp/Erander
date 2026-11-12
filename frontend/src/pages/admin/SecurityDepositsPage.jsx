@@ -4,8 +4,8 @@ export default function AdminSecurityDepositsPage() {
 	return (
 		<AdminRecordsPage
 			section="security-deposits"
-			title="Security-deposit administration"
-			description="Inspect active erander deposit accounts, errand-specific reserved amounts, deposit transactions and claims. Open the linked errand to see the customer, assigned erander, agreement, items, offers and financial history."
+			title="Security Deposits "
+			//description="Inspect active erander deposit accounts, errand-specific reserved amounts, deposit transactions and claims. Open the linked errand to see the customer, assigned erander, agreement, items, offers and financial history."
 			datasets={[
 				{ value: "reservations", label: "Errand deposit reservations" },
 				{ value: "accounts", label: "Erander deposit accounts" },

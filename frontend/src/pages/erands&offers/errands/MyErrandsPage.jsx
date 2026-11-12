@@ -3,8 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import {
+  Activity,
   AlertCircle,
-  ArrowDownUp,
   CalendarDays,
   CheckCircle2,
   ChevronRight,
@@ -15,8 +15,8 @@ import {
   Flag,
   Inbox,
   Info,
+  Loader2,
   Lock,
-  LoaderCircle,
   Package,
   Pencil,
   Plus,
@@ -24,7 +24,7 @@ import {
   Search,
   ShieldAlert,
   Trash2,
-  Activity,
+  X,
   XCircle,
 } from "lucide-react";
 
@@ -32,20 +32,21 @@ import DashboardLayout from "@/components/layout/DashboardLayout";
 import ActionMenu from "@/components/ActionMenu";
 import Select from "@/components/Select";
 import Modal from "@/components/Modal";
+import CreateSupportTicket from "@/pages/support/CreateSupportTicket";
+
 
 import * as errandsApi from "@/services/errands/errandsApi";
 
-/* -------------------------------------------------------
-   ROUTES
-------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+/*                                  CONSTANTS                                 */
+/* -------------------------------------------------------------------------- */
 
 const ROUTES = {
   create: "/dashboard/erands/new",
   details: (id) => `/dashboard/erands/${encodeURIComponent(id)}`,
   offers: (id) => `/dashboard/erands/${encodeURIComponent(id)}/offers`,
   edit: (id) => `/dashboard/erands/${encodeURIComponent(id)}/edit`,
-  report: (id) =>
-    `/dashboard/support/new?errandId=${encodeURIComponent(id)}`,
+  report: (id) => `/dashboard/support/new?errandId=${encodeURIComponent(id)}`,
 };
 
 const PAGE_SIZE = 12;
@@ -67,44 +68,26 @@ const SORT_OPTIONS = [
   { value: "budget_low", label: "Lowest budget" },
 ];
 
-/* Tab content animation timings */
 const TAB_TRANSITION = { duration: 0.2, ease: [0.22, 1, 0.36, 1] };
 const TAB_EXIT_TRANSITION = { duration: 0.1, ease: "easeIn" };
+const INDICATOR_SPRING = { type: "spring", stiffness: 380, damping: 32, mass: 0.6 };
 
-const INDICATOR_SPRING = {
-  type: "spring",
-  stiffness: 380,
-  damping: 32,
-  mass: 0.6,
-};
-
-/* -------------------------------------------------------
-   STATUS DATA
-------------------------------------------------------- */
-
-const FUNDED_OR_LATER = [
-  "funded",
-  "in_progress",
-  "completion_submitted",
-  "completed",
-  "disputed",
-];
-
+const FUNDED_OR_LATER = ["funded", "in_progress", "completion_submitted", "completed", "disputed"];
 const ENDED = ["cancelled", "canceled", "expired"];
 
 const STATUS_META = {
-  draft: { label: "Draft", icon: ClipboardList, className: "bg-slate-100 text-slate-600" },
-  open: { label: "Open", icon: CircleDot, className: "bg-emerald-50 text-emerald-700" },
-  offer_selected: { label: "Offer selected", icon: CheckCircle2, className: "bg-sky-50 text-sky-700" },
-  assigned: { label: "Erander assigned", icon: CheckCircle2, className: "bg-sky-50 text-sky-700" },
-  awaiting_funding: { label: "Awaiting funding", icon: Clock3, className: "bg-amber-50 text-amber-700" },
-  funded: { label: "Funded", icon: CheckCircle2, className: "bg-blue-50 text-blue-700" },
-  in_progress: { label: "In progress", icon: Activity, className: "bg-violet-50 text-violet-700" },
-  completion_submitted: { label: "Awaiting review", icon: Clock3, className: "bg-orange-50 text-orange-700" },
-  completed: { label: "Completed", icon: CheckCircle2, className: "bg-emerald-50 text-emerald-700" },
-  cancelled: { label: "Cancelled", icon: XCircle, className: "bg-slate-100 text-slate-600" },
-  disputed: { label: "Disputed", icon: ShieldAlert, className: "bg-rose-50 text-rose-700" },
-  expired: { label: "Expired", icon: Clock3, className: "bg-slate-100 text-slate-600" },
+  draft: { label: "Draft", icon: ClipboardList, className: "bg-surface-muted text-content-muted ring-line" },
+  open: { label: "Open", icon: CircleDot, className: "bg-emerald-50 text-emerald-700 ring-emerald-100" },
+  offer_selected: { label: "Offer selected", icon: CheckCircle2, className: "bg-sky-50 text-sky-700 ring-sky-100" },
+  assigned: { label: "Erander assigned", icon: CheckCircle2, className: "bg-sky-50 text-sky-700 ring-sky-100" },
+  awaiting_funding: { label: "Awaiting funding", icon: Clock3, className: "bg-amber-50 text-amber-700 ring-amber-100" },
+  funded: { label: "Funded", icon: CheckCircle2, className: "bg-sky-50 text-sky-700 ring-sky-100" },
+  in_progress: { label: "In progress", icon: Activity, className: "bg-violet-50 text-violet-700 ring-violet-100" },
+  completion_submitted: { label: "Awaiting review", icon: Clock3, className: "bg-amber-50 text-amber-700 ring-amber-100" },
+  completed: { label: "Completed", icon: CheckCircle2, className: "bg-emerald-50 text-emerald-700 ring-emerald-100" },
+  cancelled: { label: "Cancelled", icon: XCircle, className: "bg-surface-muted text-content-muted ring-line" },
+  disputed: { label: "Disputed", icon: ShieldAlert, className: "bg-rose-50 text-rose-700 ring-rose-100" },
+  expired: { label: "Expired", icon: Clock3, className: "bg-surface-muted text-content-muted ring-line" },
 };
 
 const CATEGORY_LABELS = {
@@ -118,6 +101,15 @@ const CATEGORY_LABELS = {
 };
 
 const STAGES = ["Posted", "Erander chosen", "Funded", "Underway", "Done"];
+
+const PRIMARY_BUTTON =
+  "inline-flex items-center justify-center gap-2 rounded-full bg-brand-green px-6 py-3 text-sm font-extrabold text-brand-navy transition hover:brightness-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60";
+
+const GHOST_BUTTON =
+  "inline-flex items-center justify-center gap-2 rounded-full border border-line bg-surface-white px-5 py-3 text-sm font-bold text-content-muted transition hover:bg-surface-muted hover:text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy disabled:cursor-not-allowed disabled:opacity-50";
+
+const DANGER_BUTTON =
+  "inline-flex items-center justify-center gap-2 rounded-full bg-rose-600 px-5 py-3 text-sm font-extrabold text-white transition hover:bg-rose-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60";
 
 function getStageIndex(status) {
   switch (status) {
@@ -138,15 +130,14 @@ function getStageIndex(status) {
   }
 }
 
-/* -------------------------------------------------------
-   HELPERS
-------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+/*                                   HELPERS                                  */
+/* -------------------------------------------------------------------------- */
 
 function formatCurrency(amount, currency = "NGN") {
   const value = Number(amount);
-  if (amount === null || amount === undefined || !Number.isFinite(value)) {
-    return "Not set";
-  }
+  if (amount === null || amount === undefined || !Number.isFinite(value)) return "Not set";
+
   try {
     return new Intl.NumberFormat("en-NG", {
       style: "currency",
@@ -162,6 +153,7 @@ function formatDate(value) {
   if (!value) return "Date unavailable";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Date unavailable";
+
   return new Intl.DateTimeFormat("en-NG", {
     day: "numeric",
     month: "short",
@@ -176,29 +168,18 @@ function getStatusMeta(status) {
         .replaceAll("_", " ")
         .replace(/\b\w/g, (letter) => letter.toUpperCase()),
       icon: CircleDot,
-      className: "bg-slate-100 text-slate-600",
+      className: "bg-surface-muted text-content-muted ring-line",
     }
   );
 }
 
-const getStatus = (errand) =>
-  String(errand?.status || "").toLowerCase().trim();
-
-function getErrandId(errand) {
-  return errand?.id || errand?.erand_id || null;
-}
-
-function getErrandTitle(errand) {
-  return errand?.title || "Untitled errand";
-}
-
-function getErrandReference(errand) {
-  return errand?.reference_code || errand?.reference || "Reference pending";
-}
-
-function getErrandDate(errand) {
-  return errand?.created_at || errand?.createdAt || errand?.scheduled_for || null;
-}
+const getStatus = (errand) => String(errand?.status || "").toLowerCase().trim();
+const getErrandId = (errand) => errand?.id || errand?.erand_id || null;
+const getErrandTitle = (errand) => errand?.title || "Untitled errand";
+const getErrandReference = (errand) =>
+  errand?.reference_code || errand?.reference || "Reference pending";
+const getErrandDate = (errand) =>
+  errand?.created_at || errand?.createdAt || errand?.scheduled_for || null;
 
 function getErrandBudget(errand) {
   const raw = errand?.estimated_total;
@@ -207,13 +188,10 @@ function getErrandBudget(errand) {
   return Number.isFinite(value) ? value : null;
 }
 
-function getCategoryLabel(errand) {
-  return (
-    CATEGORY_LABELS[errand?.category] ||
-    errand?.category?.replaceAll("_", " ") ||
-    "General errand"
-  );
-}
+const getCategoryLabel = (errand) =>
+  CATEGORY_LABELS[errand?.category] ||
+  errand?.category?.replaceAll("_", " ") ||
+  "General errand";
 
 function getOfferCount(errand) {
   if (!errand) return 0;
@@ -232,9 +210,7 @@ function getOfferCount(errand) {
   for (const value of candidates) {
     if (value === null || value === undefined) continue;
     const parsed = Number(value);
-    if (Number.isFinite(parsed) && parsed >= 0) {
-      return Math.floor(parsed);
-    }
+    if (Number.isFinite(parsed) && parsed >= 0) return Math.floor(parsed);
   }
 
   if (Array.isArray(errand.offers)) return errand.offers.length;
@@ -243,13 +219,11 @@ function getOfferCount(errand) {
   return 0;
 }
 
-function shouldShowOffers(errand, offerCount) {
-  if (offerCount > 0) return true;
-  return getStatus(errand) === "open";
-}
+const shouldShowOffers = (errand, offerCount) =>
+  offerCount > 0 || getStatus(errand) === "open";
 
-function hasAcceptedAgreement(errand) {
-  return Boolean(
+const hasAcceptedAgreement = (errand) =>
+  Boolean(
     errand?.accepted_offer_id ||
       errand?.acceptedOfferId ||
       errand?.agreement_accepted_at ||
@@ -257,7 +231,6 @@ function hasAcceptedAgreement(errand) {
       errand?.agreement_locked_at ||
       errand?.agreementLockedAt
   );
-}
 
 function isFundedErrand(errand) {
   if (!errand) return false;
@@ -268,13 +241,8 @@ function isFundedErrand(errand) {
     errand.funding_status || errand.fundingStatus || ""
   ).toLowerCase();
 
-  if (
-    ["funded", "fully_funded", "partially_funded", "partial"].includes(
-      fundingStatus
-    )
-  ) {
+  if (["funded", "fully_funded", "partially_funded", "partial"].includes(fundingStatus))
     return true;
-  }
 
   const funded = Number(
     errand.amount_funded ?? errand.amountFunded ?? errand.funded_amount ?? 0
@@ -285,15 +253,10 @@ function isFundedErrand(errand) {
 
 function getLockReason(errand) {
   if (!errand) return "Errand information is unavailable";
-  if (ENDED.includes(getStatus(errand))) {
+  if (ENDED.includes(getStatus(errand)))
     return "Not available for a cancelled or expired errand";
-  }
-  if (hasAcceptedAgreement(errand)) {
-    return "Locked after an offer is accepted";
-  }
-  if (isFundedErrand(errand)) {
-    return "Locked once an errand is funded";
-  }
+  if (hasAcceptedAgreement(errand)) return "Locked after an offer is accepted";
+  if (isFundedErrand(errand)) return "Locked once an errand is funded";
   return null;
 }
 
@@ -310,25 +273,37 @@ function normalizeErrandsResponse(response) {
 
 function findApi(...names) {
   for (const name of names) {
-    if (typeof errandsApi[name] === "function") {
-      return errandsApi[name];
-    }
+    if (typeof errandsApi[name] === "function") return errandsApi[name];
   }
   return null;
 }
 
-/* -------------------------------------------------------
-   SMALL UI PIECES
-------------------------------------------------------- */
+function getAttention(errand) {
+  switch (getStatus(errand)) {
+    case "awaiting_funding":
+      return { message: "Fund this errand so your erander can get started.", action: "Fund errand" };
+    case "completion_submitted":
+      return { message: "Your erander says the work is done. Review it.", action: "Review work" };
+    case "disputed":
+      return { message: "A dispute is open on this errand.", action: "View dispute" };
+    default:
+      return null;
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/*                               SMALL COMPONENTS                             */
+/* -------------------------------------------------------------------------- */
 
 function StatusBadge({ status }) {
   const meta = getStatusMeta(status);
   const Icon = meta.icon;
+
   return (
     <span
-      className={`inline-flex w-fit items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${meta.className}`}
+      className={`inline-flex w-fit items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-bold ring-1 ring-inset ${meta.className}`}
     >
-      <Icon size={13} aria-hidden="true" />
+      <Icon size={12} aria-hidden="true" />
       {meta.label}
     </span>
   );
@@ -346,20 +321,16 @@ function OffersChip({ count, onClick, title }) {
           ? `View ${count} offer${count === 1 ? "" : "s"} for ${title}`
           : `View offers for ${title}`
       }
-      className={`group inline-flex w-fit items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy ${
+      className={`group inline-flex w-fit items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ring-1 ring-inset transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy ${
         hasOffers
-          ? "bg-sky-50 text-sky-700 hover:bg-sky-100"
-          : "bg-surface text-content-muted hover:bg-surface-muted hover:text-content"
+          ? "bg-sky-50 text-sky-700 ring-sky-100 hover:bg-sky-100"
+          : "bg-surface-muted text-content-muted ring-line hover:text-content"
       }`}
     >
-      <Inbox size={13} aria-hidden="true" />
-      <span>
-        {hasOffers
-          ? `${count} ${count === 1 ? "offer" : "offers"}`
-          : "No offers yet"}
-      </span>
+      <Inbox size={12} aria-hidden="true" />
+      {hasOffers ? `${count} ${count === 1 ? "offer" : "offers"}` : "No offers yet"}
       <ChevronRight
-        size={12}
+        size={11}
         aria-hidden="true"
         className="opacity-60 transition group-hover:opacity-100"
       />
@@ -372,11 +343,7 @@ function StageMeter({ status }) {
   const disputed = status === "disputed";
   const index = getStageIndex(status);
 
-  const filledClass = ended
-    ? "bg-line-strong"
-    : disputed
-      ? "bg-rose-400"
-      : "bg-brand-green";
+  const filled = ended ? "bg-line-strong" : disputed ? "bg-rose-400" : "bg-brand-green";
 
   const label = ended
     ? "This errand ended before completion"
@@ -389,46 +356,72 @@ function StageMeter({ status }) {
           <span
             key={stage}
             className={`h-1.5 flex-1 rounded-full ${
-              !ended && position <= index ? filledClass : "bg-surface-muted"
+              !ended && position <= index ? filled : "bg-surface-muted"
             }`}
           />
         ))}
       </div>
-      <p className="mt-1.5 text-xs font-medium text-content-muted">
+      <p className="mt-1.5 text-[11px] font-semibold text-content-muted">
         {ended ? "Ended" : STAGES[index]}
       </p>
     </div>
   );
 }
 
+function StatCard({ label, value, icon: Icon, loading }) {
+  return (
+    <div className="min-w-0 rounded-2xl border border-line bg-surface-white p-4 sm:p-5">
+      <div className="flex items-center justify-between gap-3">
+        <p className="truncate text-sm font-semibold text-content-muted">{label}</p>
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-pale text-success-dark">
+          <Icon size={17} aria-hidden="true" />
+        </span>
+      </div>
+
+      {loading ? (
+        <div className="mt-3 h-8 w-14 animate-pulse rounded-lg bg-surface-muted" />
+      ) : (
+        <p className="mt-2 text-3xl font-extrabold tracking-tight tabular-nums text-content">
+          {value}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function RowSkeleton() {
   return (
-    <li
-      aria-hidden="true"
-      className="flex animate-pulse items-center gap-4 px-5 py-5 sm:px-8"
-    >
+    <li aria-hidden="true" className="flex items-center gap-4 px-5 py-5 sm:px-6">
       <div className="min-w-0 flex-1 space-y-2.5">
-        <div className="h-4 w-2/3 max-w-sm rounded bg-surface-muted" />
-        <div className="h-3 w-44 rounded bg-surface-muted" />
+        <div className="h-3 w-24 animate-pulse rounded-full bg-surface-muted" />
+        <div className="h-4 w-2/3 max-w-sm animate-pulse rounded-full bg-surface-muted" />
+        <div className="h-3 w-44 animate-pulse rounded-full bg-surface-muted" />
       </div>
-      <div className="hidden h-6 w-40 rounded-full bg-surface-muted md:block" />
-      <div className="hidden h-5 w-28 rounded bg-surface-muted md:block" />
-      <div className="h-[38px] w-[38px] rounded-xl bg-surface-muted" />
+      <div className="hidden h-5 w-40 animate-pulse rounded-full bg-surface-muted md:block" />
+      <div className="hidden h-5 w-28 animate-pulse rounded-full bg-surface-muted md:block" />
+      <div className="h-9 w-9 animate-pulse rounded-full bg-surface-muted" />
     </li>
   );
 }
 
 function LoadingState() {
   return (
-    <div role="status" aria-live="polite" aria-label="Loading your errands">
+    <div role="status" aria-live="polite" className="space-y-6">
       <span className="sr-only">Loading your errands</span>
-      <div className="overflow-hidden rounded-3xl border border-line bg-surface-white shadow-erander-card">
-        <div className="border-b border-line px-5 py-4 sm:px-8">
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {[0, 1, 2, 3].map((item) => (
+          <div key={item} className="h-24 animate-pulse rounded-2xl bg-surface-muted" />
+        ))}
+      </div>
+
+      <div className="overflow-hidden rounded-3xl border border-line bg-surface-white">
+        <div className="border-b border-line px-5 py-4 sm:px-6">
           <div className="h-10 w-2/3 animate-pulse rounded-full bg-surface-muted" />
         </div>
         <ul className="divide-y divide-line-soft">
-          {Array.from({ length: 5 }, (_, index) => (
-            <RowSkeleton key={index} />
+          {[0, 1, 2, 3, 4].map((item) => (
+            <RowSkeleton key={item} />
           ))}
         </ul>
       </div>
@@ -439,54 +432,32 @@ function LoadingState() {
 function EmptyState({ hasFilters, onClear, onCreate }) {
   return (
     <div className="flex flex-col items-center px-6 py-14 text-center">
-      <span className="flex h-16 w-16 items-center justify-center rounded-full bg-brand-pale text-brand-navy">
-        <Package size={28} aria-hidden="true" />
+      <span className="flex h-14 w-14 items-center justify-center rounded-full bg-surface-muted text-content-subtle">
+        <Package size={26} aria-hidden="true" />
       </span>
-      <h3 className="mt-5 text-lg font-extrabold tracking-tight text-content">
+
+      <h3 className="mt-4 text-base font-extrabold tracking-tight text-content">
         {hasFilters ? "No matching errands" : "Your errands start here"}
       </h3>
-      <p className="mt-2 max-w-md text-sm leading-6 text-content-muted">
+
+      <p className="mt-1 max-w-sm text-sm leading-6 text-content-muted">
         {hasFilters
           ? "Nothing matches your current search or filter. Try changing them."
           : "Post an errand and connect with an erander who can help you get it done."}
       </p>
+
       {hasFilters ? (
-        <button
-          type="button"
-          onClick={onClear}
-          className="mt-5 rounded-full border border-line px-6 py-3 text-sm font-bold text-content transition hover:bg-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy"
-        >
+        <button type="button" onClick={onClear} className={`${GHOST_BUTTON} mt-5`}>
           Clear filters
         </button>
       ) : (
-        <button
-          type="button"
-          onClick={onCreate}
-          className="mt-5 inline-flex items-center gap-2 rounded-full bg-brand-green px-6 py-3 text-sm font-extrabold text-brand-navy transition hover:brightness-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy focus-visible:ring-offset-2"
-        >
-          <Plus size={18} aria-hidden="true" />
+        <button type="button" onClick={onCreate} className={`${PRIMARY_BUTTON} mt-5`}>
+          <Plus size={17} aria-hidden="true" />
           Post an errand
         </button>
       )}
     </div>
   );
-}
-
-/* -------------------------------------------------------
-   NEEDS YOUR ATTENTION
-------------------------------------------------------- */
-
-function getAttention(errand) {
-  switch (getStatus(errand)) {
-    case "awaiting_funding":
-      return { message: "Fund this errand so your erander can get started.", action: "Fund errand" };
-    case "completion_submitted":
-      return { message: "Your erander says the work is done. Review it.", action: "Review work" };
-    case "disputed":
-      return { message: "A dispute is open on this errand.", action: "View dispute" };
-    default:
-      return null;
-  }
 }
 
 function AttentionPanel({ errands, onView }) {
@@ -499,50 +470,51 @@ function AttentionPanel({ errands, onView }) {
   return (
     <section
       aria-label="Errands that need your attention"
-      className="overflow-hidden rounded-3xl bg-brand-green text-brand-navy"
+      className="overflow-hidden rounded-3xl border border-amber-200 bg-amber-50"
     >
-      <div className="flex items-center gap-3 px-5 pb-2 pt-5 sm:px-8">
-        <Clock3 size={20} aria-hidden="true" className="shrink-0" />
-        <h2 className="text-lg font-extrabold tracking-tight">
+      <div className="flex items-center gap-3 px-5 pb-1 pt-5 sm:px-6">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-amber-700">
+          <Clock3 size={17} aria-hidden="true" />
+        </span>
+        <h2 className="text-base font-extrabold tracking-tight text-amber-950">
           {items.length === 1
             ? "1 errand is waiting on you"
             : `${items.length} errands are waiting on you`}
         </h2>
       </div>
-      <ul className="divide-y divide-brand-navy/15 px-5 pb-2 sm:px-8">
+
+      <ul className="divide-y divide-amber-200/70 px-5 pb-2 sm:px-6">
         {items.slice(0, 4).map(({ errand, attention }) => (
           <li
             key={getErrandId(errand) || errand.reference_code}
             className="flex flex-wrap items-center justify-between gap-3 py-3.5"
           >
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-extrabold">
+              <p className="truncate text-sm font-extrabold text-amber-950">
                 {getErrandTitle(errand)}
               </p>
-              <p className="mt-0.5 text-sm">{attention.message}</p>
+              <p className="mt-0.5 text-sm text-amber-900">{attention.message}</p>
             </div>
+
             <button
               type="button"
               onClick={() => onView(getErrandId(errand))}
-              className="shrink-0 rounded-full bg-brand-navy px-5 py-2.5 text-sm font-bold text-content-inverse shadow-sm transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy focus-visible:ring-offset-2 focus-visible:ring-offset-brand-green"
+              className="shrink-0 rounded-full bg-brand-navy px-5 py-2.5 text-sm font-bold text-content-inverse transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy focus-visible:ring-offset-2"
             >
               {attention.action}
             </button>
           </li>
         ))}
       </ul>
-      {items.length > 4 && (
-        <p className="px-5 pb-4 text-xs sm:px-8">
+
+      {items.length > 4 ? (
+        <p className="px-5 pb-4 text-xs text-amber-900 sm:px-6">
           And {items.length - 4} more in the list below.
         </p>
-      )}
+      ) : null}
     </section>
   );
 }
-
-/* -------------------------------------------------------
-   ERRAND ROW
-------------------------------------------------------- */
 
 function ErrandRow({
   errand,
@@ -563,24 +535,20 @@ function ErrandRow({
 
   const offerCount = getOfferCount(errand);
   const showOffers = shouldShowOffers(errand, offerCount);
-  const offerLabel = offerCount > 0
-    ? `View ${offerCount} ${offerCount === 1 ? "offer" : "offers"}`
-    : "View offers";
+  const offerLabel =
+    offerCount > 0
+      ? `View ${offerCount} ${offerCount === 1 ? "offer" : "offers"}`
+      : "View offers";
 
   const menuItems = [
-    {
-      id: "view",
-      label: "View details",
-      icon: Eye,
-      disabled: !id,
-      onClick: () => onView(id),
-    },
+    { id: "view", label: "View details", icon: Eye, disabled: !id, onClick: () => onView(id) },
     {
       id: "offers",
       label: offerLabel,
-      description: offerCount > 0
-        ? `${offerCount} erander proposal${offerCount === 1 ? "" : "s"} received`
-        : "",
+      description:
+        offerCount > 0
+          ? `${offerCount} erander proposal${offerCount === 1 ? "" : "s"} received`
+          : "",
       icon: Inbox,
       disabled: !id,
       hidden: !showOffers || !id,
@@ -627,37 +595,39 @@ function ErrandRow({
   ];
 
   return (
-    <li className="px-5 py-5 transition-colors hover:bg-surface/70 sm:px-8">
+    <li className="px-5 py-5 transition-colors hover:bg-surface-muted/50 sm:px-6">
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-4 md:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_150px_auto] md:items-center md:gap-x-8">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge status={status} />
 
-            {locked && !ENDED.includes(status) && (
+            {locked && !ENDED.includes(status) ? (
               <span
                 title={lockReason}
-                className="inline-flex items-center gap-1 text-xs font-medium text-content-muted"
+                className="inline-flex items-center gap-1 text-[11px] font-semibold text-content-muted"
               >
-                <Lock size={12} aria-hidden="true" />
+                <Lock size={11} aria-hidden="true" />
                 Locked
               </span>
-            )}
+            ) : null}
 
-            {showOffers && id && (
+            {showOffers && id ? (
               <OffersChip
                 count={offerCount}
                 title={getErrandTitle(errand)}
                 onClick={() => onViewOffers(errand)}
               />
-            )}
+            ) : null}
           </div>
+
           <button
             type="button"
             onClick={() => onView(id)}
-            className="mt-2.5 block max-w-full truncate rounded text-left text-lg font-extrabold tracking-tight text-content transition hover:text-success-dark focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy"
+            className="mt-2.5 block max-w-full truncate rounded text-left text-base font-extrabold tracking-tight text-content transition hover:text-success-dark focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy sm:text-lg"
           >
             {getErrandTitle(errand)}
           </button>
+
           <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-content-muted">
             <span className="font-semibold">{getErrandReference(errand)}</span>
             <span>{getCategoryLabel(errand)}</span>
@@ -673,8 +643,8 @@ function ErrandRow({
         </div>
 
         <div className="text-right md:text-left">
-          <p className="text-xs text-content-muted">Estimated budget</p>
-          <p className="mt-0.5 break-words text-lg font-extrabold tracking-tight tabular-nums text-content">
+          <p className="text-[11px] font-semibold text-content-muted">Estimated budget</p>
+          <p className="mt-0.5 break-words text-base font-extrabold tracking-tight tabular-nums text-content sm:text-lg">
             {formatCurrency(getErrandBudget(errand), errand?.currency_code || "NGN")}
           </p>
         </div>
@@ -687,11 +657,12 @@ function ErrandRow({
             placement="left"
             align="left"
           />
+
           <button
             type="button"
             onClick={() => onView(id)}
             aria-label={`Open ${getErrandTitle(errand)}`}
-            className="hidden h-[38px] w-[38px] items-center justify-center rounded-xl text-content-subtle transition hover:bg-surface-white hover:text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy md:inline-flex"
+            className="hidden h-9 w-9 items-center justify-center rounded-full text-content-subtle transition hover:bg-surface-muted hover:text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy md:inline-flex"
           >
             <ChevronRight size={18} aria-hidden="true" />
           </button>
@@ -701,12 +672,13 @@ function ErrandRow({
   );
 }
 
-/* -------------------------------------------------------
-   PAGE
-------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+/*                                    PAGE                                    */
+/* -------------------------------------------------------------------------- */
 
 export default function MyErrandsPage() {
   const navigate = useNavigate();
+		
 
   const [errands, setErrands] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -718,27 +690,30 @@ export default function MyErrandsPage() {
   const [busyId, setBusyId] = useState(null);
   const [dialog, setDialog] = useState(null);
   const [helpOpen, setHelpOpen] = useState(false);
+		const [supportOpen, setSupportOpen] = useState(false);
+  const [supportErrand, setSupportErrand] = useState(null);
 
-  /* Refs for horizontally centring the active tab */
+
   const tablistRef = useRef(null);
   const tabBtnRefs = useRef({});
 
   const fetchErrands = useCallback(async () => {
     const getMyErrands = findApi("getMyErrands");
+
     if (!getMyErrands) {
       setError("getMyErrands is not exported from errandsApi.");
       setLoading(false);
       return;
     }
+
     setLoading(true);
     setError("");
+
     try {
       const response = await getMyErrands();
       setErrands(normalizeErrandsResponse(response));
     } catch (err) {
-      setError(
-        err?.message || "We couldn't load your errands. Please try again."
-      );
+      setError(err?.message || "We couldn't load your errands. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -748,7 +723,7 @@ export default function MyErrandsPage() {
     fetchErrands();
   }, [fetchErrands]);
 
-  /* Slide the active tab to the horizontal centre of the tablist */
+  // Slide the active tab to the horizontal centre of the tablist.
   useEffect(() => {
     const container = tablistRef.current;
     const activeBtn = tabBtnRefs.current[activeFilter];
@@ -756,14 +731,9 @@ export default function MyErrandsPage() {
     if (!container || !activeBtn) return;
 
     const targetLeft =
-      activeBtn.offsetLeft -
-      container.offsetWidth / 2 +
-      activeBtn.offsetWidth / 2;
+      activeBtn.offsetLeft - container.offsetWidth / 2 + activeBtn.offsetWidth / 2;
 
-    container.scrollTo({
-      left: Math.max(0, targetLeft),
-      behavior: "smooth",
-    });
+    container.scrollTo({ left: Math.max(0, targetLeft), behavior: "smooth" });
   }, [activeFilter]);
 
   const counts = useMemo(() => {
@@ -772,22 +742,22 @@ export default function MyErrandsPage() {
       accumulator[status] = (accumulator[status] || 0) + 1;
       return accumulator;
     }, {});
+
     return {
       byStatus,
       total: errands.length,
       active: errands.filter((errand) =>
-        ["funded", "in_progress", "completion_submitted"].includes(
-          getStatus(errand)
-        )
+        ["funded", "in_progress", "completion_submitted"].includes(getStatus(errand))
       ).length,
     };
   }, [errands]);
 
   const filteredErrands = useMemo(() => {
     const searchTerm = search.trim().toLowerCase();
+
     const filtered = errands.filter((errand) => {
-      const matchesStatus =
-        activeFilter === "all" || getStatus(errand) === activeFilter;
+      const matchesStatus = activeFilter === "all" || getStatus(errand) === activeFilter;
+
       const searchableText = [
         errand.title,
         errand.reference_code,
@@ -799,6 +769,7 @@ export default function MyErrandsPage() {
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
+
       return matchesStatus && (!searchTerm || searchableText.includes(searchTerm));
     });
 
@@ -859,31 +830,43 @@ export default function MyErrandsPage() {
         toast.error("This errand doesn't have a valid ID yet.");
         return;
       }
+
       const lockReason = getLockReason(errand);
       if (lockReason) {
         toast.error(lockReason);
         return;
       }
+
       navigate(ROUTES.edit(id));
     },
     [navigate]
   );
+		
+		
+		const handleReport = useCallback(
+				(id) => {
+						if (!id) {
+								toast.error("This errand doesn't have a valid ID yet.");
+								return;
+						}
+		
+						const selectedErrand = errands.find(
+								(item) => String(item.id || item.erand_id) === String(id)
+						);
+		
+						if (!selectedErrand) {
+								toast.error("We couldn't find the selected errand.");
+								return;
+						}
+		
+						setSupportErrand(selectedErrand);
+						setSupportOpen(true);
+				},
+				[errands]
+		);
 
-  const handleReport = useCallback(
-    (id) => {
-      if (!id) {
-        toast.error("This errand doesn't have a valid ID yet.");
-        return;
-      }
-      navigate(ROUTES.report(id));
-    },
-    [navigate]
-  );
-
-  const requestClose = useCallback(
-    (errand) => setDialog({ type: "close", errand }),
-    []
-  );
+  
+  const requestClose = useCallback((errand) => setDialog({ type: "close", errand }), []);
 
   const requestDelete = useCallback((errand) => {
     const lockReason = getLockReason(errand);
@@ -894,13 +877,13 @@ export default function MyErrandsPage() {
     setDialog({ type: "delete", errand });
   }, []);
 
-  const cancelDialog = useCallback(() => {
-    setDialog(null);
-  }, []);
+  const cancelDialog = useCallback(() => setDialog(null), []);
 
   const confirmDialog = async () => {
     if (!dialog || busyId) return;
+
     const id = getErrandId(dialog.errand);
+
     if (!id) {
       toast.error("We couldn't identify this errand.");
       return;
@@ -921,13 +904,16 @@ export default function MyErrandsPage() {
     }
 
     setBusyId(id);
+
     try {
       await action(id);
+
       toast.success(
         dialog.type === "delete"
           ? "Your errand has been removed from your active errands."
           : "Your errand request has been closed."
       );
+
       setDialog(null);
       await fetchErrands();
     } catch (err) {
@@ -953,68 +939,53 @@ export default function MyErrandsPage() {
 
   const tabs = FILTERS.map((filter) => ({
     ...filter,
-    count:
-      filter.value === "all"
-        ? counts.total
-        : counts.byStatus[filter.value] || 0,
+    count: filter.value === "all" ? counts.total : counts.byStatus[filter.value] || 0,
   }));
+
+  const isDelete = dialog?.type === "delete";
 
   return (
     <DashboardLayout>
       <main className="mx-auto w-full max-w-[1440px] space-y-6 px-0 py-6 sm:px-2 lg:py-8">
-        <header className="overflow-hidden rounded-3xl bg-brand-navy text-content-inverse shadow-erander-card">
-          <div className="px-5 pb-8 pt-6 sm:px-8 sm:pb-9 sm:pt-8">
-            <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-              <div className="min-w-0">
-                <h1 className="text-3xl font-extrabold leading-tight tracking-tight sm:text-4xl">
-                  My errands
-                </h1>
-                <p className="mt-2 max-w-xl text-sm leading-6 text-white/70 sm:text-base">
-                  Follow every request from the first offer to the final
-                  payment.
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  onClick={fetchErrands}
-                  disabled={loading}
-                  className="inline-flex items-center justify-center gap-2 rounded-full bg-white/10 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-mint disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <RefreshCw
-                    size={16}
-                    aria-hidden="true"
-                    className={loading ? "animate-spin" : ""}
-                  />
-                  Refresh
-                </button>
-                <button
-                  type="button"
-                  onClick={() => navigate(ROUTES.create)}
-                  className="inline-flex items-center justify-center gap-2 rounded-full bg-brand-green px-6 py-3 text-sm font-extrabold text-brand-navy shadow-sm transition hover:brightness-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-mint focus-visible:ring-offset-2 focus-visible:ring-offset-brand-navy"
-                >
-                  <Plus size={18} aria-hidden="true" />
-                  Post an errand
-                </button>
-              </div>
-            </div>
+        {/* Header */}
+        <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+          <div className="min-w-0">
+            <p className="text-xs font-extrabold uppercase tracking-[0.16em] text-success">
+              Customer
+            </p>
+            <h1 className="mt-1 text-2xl font-extrabold tracking-tight text-brand-navy sm:text-3xl">
+              My errands
+            </h1>
+            <p className="mt-1 max-w-xl text-sm text-content-muted">
+              Follow every request from the first offer to the final payment.
+            </p>
           </div>
 
-          <dl className="grid grid-cols-2 gap-px bg-white/10 lg:grid-cols-4">
-            {[
-              ["Total errands", counts.total, ""],
-              ["Open for offers", counts.byStatus.open || 0, ""],
-              ["Being handled", counts.active, "text-brand-mint"],
-              ["Completed", counts.byStatus.completed || 0, ""],
-            ].map(([label, value, tone]) => (
-              <div key={label} className="bg-brand-navy px-5 py-4 sm:px-8">
-                <dt className="text-sm text-white/70">{label}</dt>
-                <dd className={`mt-1 text-2xl font-extrabold tabular-nums ${tone}`}>
-                  {loading ? "—" : value}
-                </dd>
-              </div>
-            ))}
-          </dl>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={fetchErrands}
+              disabled={loading}
+              aria-label="Refresh errands"
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-line bg-surface-white px-4 text-sm font-bold text-brand-navy transition hover:bg-surface-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy disabled:opacity-60"
+            >
+              <RefreshCw
+                size={16}
+                aria-hidden="true"
+                className={loading ? "animate-spin" : ""}
+              />
+              <span className="hidden sm:inline">Refresh</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => navigate(ROUTES.create)}
+              className="inline-flex h-10 items-center gap-2 rounded-full bg-brand-green px-5 text-sm font-extrabold text-brand-navy transition hover:brightness-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy focus-visible:ring-offset-2"
+            >
+              <Plus size={16} aria-hidden="true" />
+              Post an errand
+            </button>
+          </div>
         </header>
 
         {loading ? (
@@ -1022,41 +993,54 @@ export default function MyErrandsPage() {
         ) : error ? (
           <div
             role="alert"
-            className="rounded-r-3xl border-l-4 border-rose-500 bg-rose-50 p-6"
+            className="flex flex-col items-center rounded-3xl border border-rose-200 bg-rose-50 px-6 py-12 text-center"
           >
-            <div className="flex items-start gap-3">
-              <AlertCircle
-                size={22}
-                className="mt-0.5 shrink-0 text-rose-600"
-                aria-hidden="true"
-              />
-              <div className="min-w-0 flex-1">
-                <h2 className="font-extrabold text-rose-950">
-                  We couldn't load your errands
-                </h2>
-                <p className="mt-1 break-words text-sm leading-6 text-rose-800">
-                  {error}
-                </p>
-                <button
-                  type="button"
-                  onClick={fetchErrands}
-                  className="mt-4 inline-flex items-center gap-2 rounded-full bg-rose-700 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-rose-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-700 focus-visible:ring-offset-2"
-                >
-                  <RefreshCw size={15} aria-hidden="true" />
-                  Try again
-                </button>
-              </div>
-            </div>
+            <span className="flex h-14 w-14 items-center justify-center rounded-full bg-white text-rose-500">
+              <AlertCircle size={25} aria-hidden="true" />
+            </span>
+
+            <h2 className="mt-4 text-base font-extrabold text-rose-950">
+              We couldn't load your errands
+            </h2>
+
+            <p className="mt-1 max-w-md break-words text-sm leading-6 text-rose-800">
+              {error}
+            </p>
+
+            <button
+              type="button"
+              onClick={fetchErrands}
+              className="mt-5 inline-flex items-center gap-2 rounded-full bg-rose-700 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-rose-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-700 focus-visible:ring-offset-2"
+            >
+              <RefreshCw size={15} aria-hidden="true" />
+              Try again
+            </button>
           </div>
         ) : (
           <>
+            {/* Stats */}
+            <section
+              aria-label="Errand summary"
+              className="grid grid-cols-2 gap-3 lg:grid-cols-4"
+            >
+              <StatCard label="Total errands" value={counts.total} icon={ClipboardList} />
+              <StatCard label="Open for offers" value={counts.byStatus.open || 0} icon={Inbox} />
+              <StatCard label="Being handled" value={counts.active} icon={Activity} />
+              <StatCard
+                label="Completed"
+                value={counts.byStatus.completed || 0}
+                icon={CheckCircle2}
+              />
+            </section>
+
             <AttentionPanel errands={errands} onView={handleView} />
 
+            {/* List */}
             <section
               aria-label="Your errands"
-              className="overflow-hidden rounded-3xl border border-line bg-surface-white shadow-erander-card"
+              className="overflow-hidden rounded-3xl border border-line bg-surface-white"
             >
-              <div className="border-b border-line px-3 sm:px-6">
+              <div className="border-b border-line px-3 sm:px-5">
                 <div
                   ref={tablistRef}
                   role="tablist"
@@ -1065,11 +1049,12 @@ export default function MyErrandsPage() {
                 >
                   {tabs.map((tab) => {
                     const active = activeFilter === tab.value;
+
                     return (
                       <button
                         key={tab.value}
-                        ref={(el) => {
-                          tabBtnRefs.current[tab.value] = el;
+                        ref={(element) => {
+                          tabBtnRefs.current[tab.value] = element;
                         }}
                         type="button"
                         role="tab"
@@ -1078,15 +1063,14 @@ export default function MyErrandsPage() {
                           setActiveFilter(tab.value);
                           setVisibleCount(PAGE_SIZE);
                         }}
-                        className={`relative inline-flex shrink-0 items-center gap-2 px-4 py-4 text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy ${
-                          active
-                            ? "text-content"
-                            : "text-content-muted hover:text-content"
+                        className={`relative inline-flex shrink-0 items-center gap-2 px-4 py-4 text-sm font-bold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy ${
+                          active ? "text-content" : "text-content-muted hover:text-content"
                         }`}
                       >
                         {tab.label}
+
                         <span
-                          className={`rounded-full px-2 py-0.5 text-xs font-bold tabular-nums transition-colors ${
+                          className={`rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums transition-colors ${
                             active
                               ? "bg-brand-navy text-content-inverse"
                               : "bg-surface-muted text-content-muted"
@@ -1094,27 +1078,31 @@ export default function MyErrandsPage() {
                         >
                           {tab.count}
                         </span>
-                        {active && (
+
+                        {active ? (
                           <motion.span
                             layoutId="active-errand-tab-underline"
                             aria-hidden="true"
                             className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-brand-navy"
                             transition={INDICATOR_SPRING}
                           />
-                        )}
+                        ) : null}
                       </button>
                     );
                   })}
                 </div>
               </div>
 
-              <div className="flex flex-col gap-3 border-b border-line-soft bg-surface/60 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-8">
+              <div className="flex flex-col gap-3 border-b border-line-soft px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
                 <label className="relative block sm:w-80">
+                  <span className="sr-only">Search errands</span>
+
                   <Search
                     size={16}
                     aria-hidden="true"
-                    className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-content-subtle"
+                    className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-content-subtle"
                   />
+
                   <input
                     type="search"
                     value={search}
@@ -1123,9 +1111,19 @@ export default function MyErrandsPage() {
                       setVisibleCount(PAGE_SIZE);
                     }}
                     placeholder="Search by title or reference"
-                    aria-label="Search errands"
-                    className="h-11 w-full rounded-full border border-line bg-surface-white pl-10 pr-4 text-sm text-content outline-none transition placeholder:text-content-subtle focus:border-brand-navy focus:ring-2 focus:ring-brand-pale"
+                    className="h-11 w-full rounded-full border border-line bg-surface-white pl-10 pr-9 text-sm text-content outline-none transition placeholder:text-content-subtle focus:border-brand-navy focus:ring-2 focus:ring-brand-pale"
                   />
+
+                  {search ? (
+                    <button
+                      type="button"
+                      onClick={() => setSearch("")}
+                      aria-label="Clear search"
+                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-content-subtle hover:text-content"
+                    >
+                      <X size={15} aria-hidden="true" />
+                    </button>
+                  ) : null}
                 </label>
 
                 <div className="flex items-center gap-2">
@@ -1150,7 +1148,7 @@ export default function MyErrandsPage() {
                     onClick={() => setHelpOpen(true)}
                     aria-label="Learn about editing and removing errands"
                     title="Editing and removing errands"
-                    className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-line bg-surface-white text-content-muted transition hover:bg-surface hover:text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy"
+                    className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-line bg-surface-white text-content-muted transition hover:bg-surface-muted hover:text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy"
                   >
                     <Info size={17} aria-hidden="true" />
                   </button>
@@ -1177,11 +1175,7 @@ export default function MyErrandsPage() {
                         <ul className="divide-y divide-line-soft">
                           {shownErrands.map((errand, index) => (
                             <ErrandRow
-                              key={
-                                getErrandId(errand) ||
-                                errand.reference_code ||
-                                index
-                              }
+                              key={getErrandId(errand) || errand.reference_code || index}
                               errand={errand}
                               busyId={busyId}
                               onView={handleView}
@@ -1194,23 +1188,21 @@ export default function MyErrandsPage() {
                           ))}
                         </ul>
 
-                        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line-soft px-5 py-4 sm:px-8">
-                          <p className="text-xs text-content-muted">
-                            Showing {shownErrands.length} of{" "}
-                            {filteredErrands.length}{" "}
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line-soft px-5 py-4 sm:px-6">
+                          <p className="text-xs font-semibold tabular-nums text-content-muted">
+                            Showing {shownErrands.length} of {filteredErrands.length}{" "}
                             {filteredErrands.length === 1 ? "errand" : "errands"}
                           </p>
-                          {remaining > 0 && (
+
+                          {remaining > 0 ? (
                             <button
                               type="button"
-                              onClick={() =>
-                                setVisibleCount((count) => count + PAGE_SIZE)
-                              }
-                              className="rounded-full bg-surface-muted px-5 py-2.5 text-sm font-semibold text-content transition hover:bg-line focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy"
+                              onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}
+                              className={`${GHOST_BUTTON} !px-5 !py-2.5`}
                             >
                               Show {Math.min(PAGE_SIZE, remaining)} more
                             </button>
-                          )}
+                          ) : null}
                         </div>
                       </>
                     )}
@@ -1222,153 +1214,143 @@ export default function MyErrandsPage() {
         )}
       </main>
 
+      {/* Help */}
       <Modal
         isOpen={helpOpen}
         onClose={() => setHelpOpen(false)}
+        icon={Info}
+        tone="info"
         title="Editing and removing errands"
-        description="A quick guide to what you can change, and when."
-        size="lg"
+        subtitle="Guide"
+        description="What you can change, and when."
+        size="md"
+        position="bottom"
+        footer={
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => setHelpOpen(false)}
+              className={PRIMARY_BUTTON}
+            >
+              Got it
+            </button>
+          </div>
+        }
       >
-        <div className="space-y-4 text-sm leading-6 text-content-muted">
-          <div className="flex items-start gap-3 rounded-2xl border border-line bg-surface p-4">
-            <Pencil
-              size={18}
-              className="mt-0.5 shrink-0 text-brand-navy"
-              aria-hidden="true"
-            />
-            <div>
-              <h3 className="text-sm font-extrabold text-content">
-                Before an offer is accepted
-              </h3>
-              <p className="mt-1">
-                You can edit or remove an errand freely. Submitted pending
-                offers do not block removal — they are preserved in history
-                and eranders can withdraw their own pending proposals.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-start gap-3 rounded-2xl border border-line bg-surface p-4">
-            <Lock
-              size={18}
-              className="mt-0.5 shrink-0 text-brand-navy"
-              aria-hidden="true"
-            />
-            <div>
-              <h3 className="text-sm font-extrabold text-content">
-                Once an agreement is accepted or funding begins
-              </h3>
-              <p className="mt-1">
-                The errand becomes protected. You can no longer edit or remove
-                it while the agreement is active or funding is underway.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-start gap-3 rounded-2xl border border-line bg-surface p-4">
-            <XCircle
-              size={18}
-              className="mt-0.5 shrink-0 text-brand-navy"
-              aria-hidden="true"
-            />
-            <div>
-              <h3 className="text-sm font-extrabold text-content">
-                Close instead of remove
-              </h3>
-              <p className="mt-1">
-                Close a request when you want to stop accepting new offers
-                without removing it from your active errands.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-6 flex justify-end">
-          <button
-            type="button"
-            onClick={() => setHelpOpen(false)}
-            className="rounded-full bg-brand-green px-6 py-3 text-sm font-extrabold text-brand-navy transition hover:brightness-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy focus-visible:ring-offset-2"
-          >
-            Got it
-          </button>
-        </div>
+        <ul className="space-y-3 pb-1">
+          {[
+            {
+              icon: Pencil,
+              title: "Before an offer is accepted",
+              text: "You can edit or remove an errand freely. Submitted pending offers don't block removal. They're kept in history, and eranders can withdraw their own pending proposals.",
+            },
+            {
+              icon: Lock,
+              title: "Once an agreement is accepted or funding begins",
+              text: "The errand becomes protected. You can no longer edit or remove it while the agreement is active or funding is underway.",
+            },
+            {
+              icon: XCircle,
+              title: "Close instead of remove",
+              text: "Close a request to stop accepting new offers without removing it from your active errands.",
+            },
+          ].map(({ icon: Icon, title, text }) => (
+            <li
+              key={title}
+              className="flex items-start gap-3 rounded-2xl bg-surface-muted/60 p-4"
+            >
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-white text-brand-navy">
+                <Icon size={16} aria-hidden="true" />
+              </span>
+              <div className="min-w-0">
+                <h3 className="text-sm font-extrabold text-content">{title}</h3>
+                <p className="mt-1 text-sm leading-6 text-content-muted">{text}</p>
+              </div>
+            </li>
+          ))}
+        </ul>
       </Modal>
 
+      {/* Close / remove confirmation */}
       <Modal
         isOpen={Boolean(dialog)}
-        onClose={() => {
-          if (!busyId) setDialog(null);
-        }}
-        title={
-          dialog?.type === "delete"
-            ? "Remove this errand?"
-            : "Close this errand request?"
-        }
+        onClose={cancelDialog}
+        dismissible={!busyId}
+        loading={Boolean(busyId)}
+        icon={isDelete ? Trash2 : XCircle}
+        tone="danger"
+        title={isDelete ? "Remove this errand?" : "Close this errand request?"}
+        subtitle="Errand"
         description={
-          dialog?.type === "delete"
+          isDelete
             ? "This removes it from your active errands. Submitted offers are preserved."
-            : "This stops new offers. It cannot be easily undone."
+            : "This stops new offers. It can't be easily undone."
         }
-        size="md"
-        closeOnOverlayClick={!busyId}
-        closeOnEscape={!busyId}
-      >
-        <div className="flex items-start gap-3 rounded-2xl border-l-4 border-rose-500 bg-rose-50 p-4">
-          {dialog?.type === "delete" ? (
-            <Trash2
-              size={20}
-              className="mt-0.5 shrink-0 text-rose-600"
-              aria-hidden="true"
-            />
-          ) : (
-            <XCircle
-              size={20}
-              className="mt-0.5 shrink-0 text-rose-600"
-              aria-hidden="true"
-            />
-          )}
-          <p className="text-sm leading-6 text-rose-900">
-            <span className="font-extrabold">
-              {getErrandTitle(dialog?.errand)}
-            </span>{" "}
-            {dialog?.type === "delete"
-              ? "will be removed from your active errands. Any offers already submitted will be preserved, and eranders can withdraw their own pending proposals. This removal cannot be undone from the app."
-              : "will stop accepting offers. You may not be able to reopen it, and any cancellation rules will be enforced by the server."}
-          </p>
-        </div>
+        size="sm"
+        position="bottom"
+        resizable={false}
+        footer={
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              disabled={Boolean(busyId)}
+              onClick={cancelDialog}
+              className={GHOST_BUTTON}
+            >
+              Keep errand
+            </button>
 
-        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-          <button
-            type="button"
-            disabled={Boolean(busyId)}
-            onClick={cancelDialog}
-            className="rounded-full border border-line px-5 py-3 text-sm font-bold text-content-muted transition hover:bg-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy disabled:opacity-50"
-          >
-            Keep errand
-          </button>
-          <button
-            type="button"
-            disabled={Boolean(busyId)}
-            onClick={confirmDialog}
-            className="inline-flex items-center justify-center gap-2 rounded-full bg-rose-600 px-5 py-3 text-sm font-extrabold text-white transition hover:bg-rose-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {busyId ? (
-              <>
-                <LoaderCircle
-                  size={16}
-                  className="animate-spin"
-                  aria-hidden="true"
-                />
-                {dialog?.type === "delete" ? "Removing..." : "Closing..."}
-              </>
-            ) : dialog?.type === "delete" ? (
-              "Remove errand"
-            ) : (
-              "Yes, close request"
-            )}
-          </button>
-        </div>
+            <button
+              type="button"
+              disabled={Boolean(busyId)}
+              onClick={confirmDialog}
+              className={DANGER_BUTTON}
+            >
+              {busyId ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+                  {isDelete ? "Removing" : "Closing"}
+                </>
+              ) : isDelete ? (
+                "Remove errand"
+              ) : (
+                "Yes, close request"
+              )}
+            </button>
+          </div>
+        }
+      >
+        {dialog ? (
+          <div className="space-y-4 pb-1">
+            <p className="text-sm leading-6 text-content-muted">
+              <b className="text-content">{getErrandTitle(dialog.errand)}</b>{" "}
+              {isDelete
+                ? "will be removed from your active errands. Offers already submitted are preserved, and eranders can withdraw their own pending proposals. This can't be undone from the app."
+                : "will stop accepting offers. You may not be able to reopen it, and any cancellation rules are enforced by the server."}
+            </p>
+          </div>
+        ) : null}
       </Modal>
+						
+						<CreateSupportTicket
+								open={supportOpen}
+								onClose={() => {
+										setSupportOpen(false);
+										setSupportErrand(null);
+								}}
+								errand={supportErrand}
+								onCreated={() => {
+										setSupportOpen(false);
+										setSupportErrand(null);
+								}}
+						/>
+					
     </DashboardLayout>
   );
 }
+
+
+
+
+
+
