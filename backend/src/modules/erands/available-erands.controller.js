@@ -41,6 +41,7 @@ function parsePositiveInteger(value, fallback, maximum) {
 const ALLOWED_CATEGORIES = new Set([
   "shopping",
   "delivery",
+  "confidential",
   "pickup",
   "home_help",
   "personal_assistance",

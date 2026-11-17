@@ -2,6 +2,13 @@ import { Router } from "express";
 import { requireAdminAuth } from "../../../middleware/requireAdminAuth.js";
 import { requireCsrf } from "../../../middleware/csrfProtection.js";
 import {
+  getAdminFundReleaseRequestDetails,
+  initiateAdminFundRelease,
+  listAdminFundReleaseRequests,
+  rejectAdminFundReleaseRequest,
+  verifyAdminFundReleaseTransfer,
+} from "./fundReleaseAdmin.controller.js";
+import {
   getProfileAdminRoles,
   listAdminActionAuditLogs,
   releaseSecurityDepositReservation,
@@ -19,6 +26,11 @@ const router = Router();
 router.use(requireAdminAuth);
 
 router.get("/audit-logs", listAdminActionAuditLogs);
+router.get("/fund-releases", listAdminFundReleaseRequests);
+router.get("/fund-releases/:requestId", getAdminFundReleaseRequestDetails);
+router.post("/fund-releases/:requestId/release", requireCsrf, initiateAdminFundRelease);
+router.post("/fund-releases/:requestId/reject", requireCsrf, rejectAdminFundReleaseRequest);
+router.post("/fund-releases/:requestId/verify", requireCsrf, verifyAdminFundReleaseTransfer);
 router.get("/users/:profileId/admin-roles", getProfileAdminRoles);
 router.post("/users/:profileId/admin-roles/:roleCode", requireCsrf, setProfileAdminRole);
 router.patch("/users/:profileId/status", requireCsrf, updateProfileAccountStatus);

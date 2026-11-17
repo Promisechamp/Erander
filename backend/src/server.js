@@ -1,10 +1,14 @@
 import app from "./app.js";
 import { env } from "./config/env.js";
+import { startNotificationEmailWorker, stopNotificationEmailWorker } from "./modules/notifications/notificationEmail.worker.js";
+import { startChatRetentionWorker, stopChatRetentionWorker } from "./modules/chats/chatRetention.worker.js";
 
 const server = app.listen(env.port, () => {
  console.log(`ERANDER API is running at http://localhost:${env.port}`);
 console.log(`Environment: ${env.nodeEnv}`);
 console.log(`Health check: http://localhost:${env.port}/api/v1/health`);
+ startNotificationEmailWorker();
+ startChatRetentionWorker();
 });
 
 // Handle unexpected server errors
@@ -22,6 +26,8 @@ process.exitCode = 1;
 function shutdown(signal) {
 console.log("\n${signal} received. Shutting down ERANDER API...");
 
+stopNotificationEmailWorker();
+stopChatRetentionWorker();
 server.close((error) => {
 if (error) {
 console.error("Error while closing the server:", error);

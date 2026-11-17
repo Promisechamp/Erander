@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { getDatabasePool } from "../../config/database.js";
+import { notifyUser } from "../notifications/notification.service.js";
 import { supabaseAdmin } from "../../config/supabase.js";
 import { hasAdminPermission } from "../admin/auth/adminPermissions.js";
 
@@ -487,6 +488,17 @@ export async function sendChatMessage(req, res) {
       [chatId, userId]
     );
     await client.query("COMMIT");
+    const chatRecipientId = chat.customer_id === userId ? chat.erander_id : chat.customer_id;
+    notifyUser({
+      recipientId: chatRecipientId,
+      type: "chat_message",
+      title: "You have a new errand message",
+      body: "You received a new message in your ERANDER conversation.",
+      actionUrl: "/chat",
+      entityType: "chat",
+      entityId: chatId,
+      dedupeKey: `chat_message:${message.id}`,
+    }).catch((error) => console.error("Chat notification failed:", error?.message));
     return res.status(201).json({
       success: true,
       data: {
@@ -626,15 +638,33 @@ export async function unarchiveChat(req, res) {
 }
 
 export async function hideChat(req, res) {
+  const userId = requireUser(req);
+  const { chatId } = req.params;
+  const db = getDatabasePool();
+  const client = await db.connect();
   try {
-    const userId = requireUser(req);
-    const { chatId } = req.params;
-    const db = getDatabasePool();
-    await getParticipant(db, chatId, userId);
-    await db.query(`UPDATE public.erand_chat_participants SET hidden_at = now(), archived_at = NULL WHERE chat_id = $1 AND profile_id = $2`, [chatId, userId]);
-    return res.json({ success: true, message: "Conversation hidden from your chat list. ERANDER retains the record." });
+    await client.query("BEGIN");
+    await getParticipant(client, chatId, userId, { lock: true });
+    const updated = await client.query(
+      `UPDATE public.erand_chat_participants
+          SET hidden_at = now(), archived_at = NULL
+        WHERE chat_id = $1 AND profile_id = $2 AND hidden_at IS NULL
+        RETURNING chat_id`,
+      [chatId, userId]
+    );
+    if (updated.rowCount) {
+      await recordEvent(client, chatId, userId, "participant_chat_deleted", {
+        scope: "requesting_participant_only",
+        other_participant_history_preserved: true,
+      });
+    }
+    await client.query("COMMIT");
+    return res.json({ success: true, message: "Conversation deleted from your chat list. The other participant keeps their copy." });
   } catch (error) {
+    try { await client.query("ROLLBACK"); } catch { /* preserve original error */ }
     return sendError(res, error);
+  } finally {
+    client.release();
   }
 }
 

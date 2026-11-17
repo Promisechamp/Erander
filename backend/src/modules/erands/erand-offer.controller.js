@@ -1,4 +1,5 @@
 import { getDatabasePool } from "../../config/database.js";
+import { notifyUser } from "../notifications/notification.service.js";
 
 class RequestError extends Error {
   constructor(message, status = 400) {
@@ -600,6 +601,18 @@ export async function createOffer(req, res) {
 
     await client.query("COMMIT");
 
+    notifyUser({
+      recipientId: errand.requested_by,
+      type: "offer_received",
+      title: "You received a new offer",
+      body: `An erander has submitted an offer for “${errand.title || "your errand"}”. Review the offer to compare the details.`,
+      actionUrl: "/dashboard/erands",
+      entityType: "erand",
+      entityId: erandId,
+      data: { offerId: offer.id },
+      dedupeKey: `offer_received:${offer.id}`,
+    }).catch((error) => console.error("Offer notification failed:", error?.message));
+
     return res.status(201).json({
       success: true,
       message: "Your offer has been submitted.",
@@ -1127,6 +1140,18 @@ export async function rejectOffer(req, res) {
 
     await client.query("COMMIT");
 
+    notifyUser({
+      recipientId: offer.offered_by,
+      type: "offer_rejected",
+      title: "Your offer was not selected",
+      body: "The customer has rejected your offer. You can continue exploring other errands.",
+      actionUrl: "/dashboard/my-offers",
+      entityType: "erand",
+      entityId: errand.id,
+      data: { offerId: offer.id },
+      dedupeKey: `offer_rejected:${offer.id}`,
+    }).catch((error) => console.error("Offer rejection notification failed:", error?.message));
+
     return res.status(200).json({
       success: true,
       message: "The offer has been rejected.",
@@ -1289,6 +1314,13 @@ export async function acceptOffer(req, res) {
       });
     }
 
+    const supersededOffersResult = await client.query(
+      `SELECT id, offered_by FROM public.erand_offers
+        WHERE erand_id = $1 AND id <> $2 AND status = 'pending'`,
+      [errand.id, offerId]
+    );
+    const supersededOffers = supersededOffersResult.rows;
+
     await client.query(
       `
         UPDATE public.erand_offers
@@ -1353,6 +1385,32 @@ export async function acceptOffer(req, res) {
     );
 
     await client.query("COMMIT");
+
+    for (const supersededOffer of supersededOffers) {
+      notifyUser({
+        recipientId: supersededOffer.offered_by,
+        type: "offer_not_selected",
+        title: "Another offer was selected",
+        body: "The customer selected another erander for this errand. You can continue exploring other opportunities.",
+        actionUrl: "/dashboard/my-offers",
+        entityType: "erand",
+        entityId: errand.id,
+        data: { offerId: supersededOffer.id },
+        dedupeKey: `offer_not_selected:${supersededOffer.id}`,
+      }).catch((error) => console.error("Superseded offer notification failed:", error?.message));
+    }
+
+    notifyUser({
+      recipientId: offer.offered_by,
+      type: "offer_accepted_assignment",
+      title: "Your offer was accepted — you're assigned",
+      body: "The customer accepted your offer. You are now assigned to this errand; you do not need to accept the assignment again.",
+      actionUrl: "/dashboard/erands",
+      entityType: "erand",
+      entityId: errand.id,
+      data: { offerId: offer.id },
+      dedupeKey: `offer_accepted_assignment:${offer.id}`,
+    }).catch((error) => console.error("Offer acceptance notification failed:", error?.message));
 
     return res.status(200).json({
       success: true,

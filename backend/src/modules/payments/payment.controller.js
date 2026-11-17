@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
 import axios from "axios";
 import { getDatabasePool } from "../../config/database.js";
+import { notifyUsers } from "../notifications/notification.service.js";
+import { processSecurityDepositPaystackWebhook } from "./securityDepositFunding.controller.js";
 
 import {
 	createPayloadHash,
@@ -473,7 +475,34 @@ async function confirmVerifiedPayment({
 		],
 	);
 
-	return result.rows[0]?.payment_id;
+	const paymentId = result.rows[0]?.payment_id;
+	if (paymentId) {
+		try {
+			const errandResult = await pool.query(
+				`SELECT e.id, e.requested_by, e.assigned_erander_id, e.reference_code
+				   FROM public.erand_payments p
+				   JOIN public.erands e ON e.id = p.erand_id
+				  WHERE p.id = $1::uuid LIMIT 1`,
+				[paymentId],
+			);
+			const errand = errandResult.rows[0];
+			if (errand) {
+				await notifyUsers([errand.requested_by, errand.assigned_erander_id], {
+					type: "errand_funded",
+					title: "Errand funding confirmed",
+					body: `Funding for ${errand.reference_code || "the errand"} has been confirmed. The errand can proceed to the next stage.`,
+					actionUrl: "/dashboard/erands",
+					entityType: "erand",
+					entityId: errand.id,
+					data: { paymentId },
+					dedupeKey: `errand_funded:${paymentId}`,
+				});
+			}
+		} catch (notificationError) {
+			console.error("Errand funding notification failed:", notificationError?.message);
+		}
+	}
+	return paymentId;
 }
 
 async function processPaymentEvent({
@@ -1265,6 +1294,22 @@ export async function handlePaystackWebhook(req, res) {
 			400,
 			"The successful charge webhook has no payment reference.",
 		);
+	}
+
+	// Security-deposit payments use a dedicated reference namespace and a
+	// separate reserve-ledger workflow; they are not ordinary customer errand
+	// payments and must not be looked up in erand_payments.
+	if (String(reference).startsWith("SEC-DEP-")) {
+		try {
+			await processSecurityDepositPaystackWebhook(reference);
+			return res.status(200).json({
+				success: true,
+				message: "Security-deposit payment webhook processed successfully.",
+			});
+		} catch (error) {
+			console.error("Security-deposit Paystack webhook processing failed:", error.message);
+			return res.status(500).json({ success: false, message: "Security-deposit webhook processing failed." });
+		}
 	}
 
 	const transactionId = payload.data?.id;

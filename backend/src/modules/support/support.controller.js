@@ -67,12 +67,7 @@ async function getProfile(userId) {
   const result = await db.query(
     `
       SELECT
-        id,
-        first_name,
-        last_name,
-        display_name,
-        user_roles,
-        account_status
+        *
       FROM public.profiles
       WHERE id = $1
       LIMIT 1
@@ -607,6 +602,7 @@ export async function getAllTickets(req, res, next) {
             'first_name', p.first_name,
             'last_name', p.last_name,
             'display_name', p.display_name,
+            'email', p.email,
             'avatar_url', p.avatar_url
           ) AS user,
 
@@ -699,6 +695,7 @@ export async function adminGetTicketDetails(req, res, next) {
             'display_name', p.display_name,
             'avatar_url', p.avatar_url,
             'phone', p.phone,
+            'email', p.email,
             'user_roles', p.user_roles
           ) AS user,
 

@@ -10,6 +10,11 @@ import {
 } from "./erand.controller.js";
 
 import { requireAuth } from "../../middleware/requireAuth.js";
+import {
+  startErrandExecution,
+  submitErrandCompletion,
+  confirmErrandCompletion,
+} from "./errandExecution.controller.js";
 import { requireCsrf } from "../../middleware/csrfProtection.js";
 
 const router = Router();
@@ -29,6 +34,11 @@ router.get("/:id", getMyErand);
 // Update an eligible request.
 router.patch("/:id", requireCsrf, updateMyErand);
 router.delete("/:id", requireCsrf, deleteMyErand);
+
+// Execution and completion lifecycle.
+router.post("/:id/start", requireCsrf, startErrandExecution);
+router.post("/:id/submit-completion", requireCsrf, submitErrandCompletion);
+router.post("/:id/confirm-completion", requireCsrf, confirmErrandCompletion);
 
 // Stop accepting new offers.
 router.post("/:id/close", requireCsrf, closeMyErand);

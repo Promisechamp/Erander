@@ -15,6 +15,12 @@ export const env = Object.freeze({
 	databaseUrl: process.env.DATABASE_URL || "",
 
 	paystackSecretKey: process.env.PAYSTACK_SECRET_KEY || "",
+	smtpHost: process.env.SMTP_HOST || "",
+	smtpPort: Number(process.env.SMTP_PORT || 587),
+	smtpSecure: String(process.env.SMTP_SECURE || "false").toLowerCase() === "true",
+	smtpUser: process.env.SMTP_USER || "",
+	smtpPass: process.env.SMTP_PASS || "",
+	emailFrom: process.env.EMAIL_FROM || "",
 	paystackCallbackUrl:
 		process.env.PAYSTACK_CALLBACK_URL ||
 		"http://localhost:5173/payment/callback",

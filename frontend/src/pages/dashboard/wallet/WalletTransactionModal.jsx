@@ -516,6 +516,10 @@ function RelatedItem({ item, currency }) {
     item.description;
 
   const status = item.status || item.processing_status;
+  const fundingMetadata = item.metadata || {};
+  const hasFundingBreakdown =
+    fundingMetadata.wallet_contribution_minor != null ||
+    fundingMetadata.paystack_contribution_minor != null;
 
   return (
     <div className="rounded-2xl border border-line bg-surface-white p-3.5">
@@ -541,6 +545,23 @@ function RelatedItem({ item, currency }) {
         <p className="mt-2 whitespace-pre-wrap break-words rounded-xl bg-surface-muted/70 p-2.5 text-xs leading-5 text-content-muted">
           {reason}
         </p>
+      ) : null}
+
+      {hasFundingBreakdown ? (
+        <div className="mt-2 grid grid-cols-2 gap-2 rounded-xl bg-surface-muted/60 p-2.5 text-xs">
+          <div>
+            <p className="text-content-subtle">Wallet contribution</p>
+            <p className="mt-0.5 font-extrabold tabular-nums text-content">
+              {formatMinor(fundingMetadata.wallet_contribution_minor || 0, cur)}
+            </p>
+          </div>
+          <div>
+            <p className="text-content-subtle">Paystack contribution</p>
+            <p className="mt-0.5 font-extrabold tabular-nums text-content">
+              {formatMinor(fundingMetadata.paystack_contribution_minor || 0, cur)}
+            </p>
+          </div>
+        </div>
       ) : null}
     </div>
   );

@@ -78,11 +78,11 @@ export default function ChatPage() {
 
   const handleHide = async (event, id) => {
     event.stopPropagation();
-    const confirmed = window.confirm("Delete this conversation from your chat list? This does not erase messages or attachments from ERANDER's database. Records may be retrieved if a report, safety review, fraud investigation, or legal request requires them.");
+    const confirmed = window.confirm("Delete this conversation from your chat list? This affects only your copy. The other participant keeps their conversation. Text messages and audit records remain; eligible images are automatically removed 30 days after successful settlement, unless a dispute, refund, claim, or support review is unresolved.");
     if (!confirmed) return;
     try {
       await hideChat(id);
-      toast.success("Conversation removed from your list. The record is retained by ERANDER.");
+      toast.success("Conversation deleted from your list. The other participant keeps their copy.");
       await loadChats({ silent: true });
       if (chatId === id) navigate("/chat");
     } catch (actionError) {

@@ -35,8 +35,8 @@ export const registrationValidation = [
     .withMessage("Password must be between 8 and 128 characters."),
 
   body("role")
-    .isIn(["customer", "erander"])
-    .withMessage("Role must be either customer or erander."),
+    .isIn(["customer", "erander", "both"])
+    .withMessage("Choose customer, erander, or both."),
 ];
 
 export function handleRegistrationValidation(req, res, next) {

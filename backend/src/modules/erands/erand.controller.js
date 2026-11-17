@@ -1,10 +1,13 @@
 import { randomUUID } from "node:crypto";
 
 import { getDatabasePool } from "../../config/database.js";
+import { notifyUser } from "../notifications/notification.service.js";
+import { canCreateBusinessErrands } from "../business/auth/businessAuth.service.js";
 
 const ALLOWED_CATEGORIES = new Set([
   "shopping",
   "delivery",
+  "confidential",
   "pickup",
   "home_help",
   "personal_assistance",
@@ -21,7 +24,7 @@ const ALLOWED_LOCATION_TYPES = new Set([
   "other",
 ]);
 
-const ALLOWED_CURRENCIES = new Set(["NGN"]);
+const ALLOWED_CURRENCIES = new Set(["USD", "NGN", "GBP", "EUR"]);
 
 const MAX_ITEMS = 100;
 const MAX_PAGE_SIZE = 100;
@@ -49,6 +52,81 @@ function isPlainObject(value) {
     typeof value === "object" &&
     !Array.isArray(value)
   );
+}
+
+
+function validateCategoryDetails(value) {
+  if (value === undefined || value === null) {
+    return {};
+  }
+
+  if (!isPlainObject(value)) {
+    fail(400, "category_details must be a JSON object.");
+  }
+
+  let serialized;
+
+  try {
+    serialized = JSON.stringify(value);
+  } catch {
+    fail(400, "category_details must contain valid JSON data.");
+  }
+
+  if (Buffer.byteLength(serialized, "utf8") > 24000) {
+    fail(400, "category_details must not exceed 24 KB.");
+  }
+
+  function inspect(node, depth = 0) {
+    if (depth > 5) {
+      fail(400, "category_details is nested too deeply.");
+    }
+
+    if (
+      node === null ||
+      typeof node === "boolean" ||
+      typeof node === "string"
+    ) {
+      if (typeof node === "string" && node.length > 5000) {
+        fail(400, "A category detail value exceeds 5,000 characters.");
+      }
+      return;
+    }
+
+    if (typeof node === "number") {
+      if (!Number.isFinite(node)) {
+        fail(400, "category_details contains an invalid number.");
+      }
+      return;
+    }
+
+    if (Array.isArray(node)) {
+      if (node.length > 100) {
+        fail(400, "A category detail list cannot contain more than 100 values.");
+      }
+      node.forEach((entry) => inspect(entry, depth + 1));
+      return;
+    }
+
+    if (isPlainObject(node)) {
+      const entries = Object.entries(node);
+      if (entries.length > 100) {
+        fail(400, "A category detail object cannot contain more than 100 fields.");
+      }
+
+      for (const [key, entry] of entries) {
+        if (!key || key.length > 100) {
+          fail(400, "A category detail field name is invalid.");
+        }
+        inspect(entry, depth + 1);
+      }
+      return;
+    }
+
+    fail(400, "category_details contains an unsupported value.");
+  }
+
+  inspect(value);
+  return value;
 }
 
 
@@ -370,6 +448,7 @@ function validateErrandInput(input, { partial = false } = {}) {
     "description",
     "category",
     "currency_code",
+    "category_details",
     "estimated_total",
     "max_erander_offers",
     "scheduled_for",
@@ -420,19 +499,27 @@ function validateErrandInput(input, { partial = false } = {}) {
   }
 
   if (!partial || input.currency_code !== undefined) {
-    const currencyCode =
-      input.currency_code === undefined
-        ? "NGN"
-        : input.currency_code;
+    const currencyCode = input.currency_code;
 
-    if (!ALLOWED_CURRENCIES.has(currencyCode)) {
+    if (
+      typeof currencyCode !== "string" ||
+      !ALLOWED_CURRENCIES.has(currencyCode.trim().toUpperCase())
+    ) {
       fail(
         400,
-        "Only NGN is currently supported for errand transactions.",
+        "Choose a transaction currency: USD, NGN, GBP or EUR.",
       );
     }
 
-    result.currency_code = currencyCode;
+    result.currency_code = currencyCode.trim().toUpperCase();
+  }
+
+  if (input.category_details !== undefined) {
+    result.category_details = validateCategoryDetails(
+      input.category_details,
+    );
+  } else if (!partial) {
+    result.category_details = {};
   }
 
   if (!partial || input.estimated_total !== undefined) {
@@ -1024,10 +1111,12 @@ async function saveErrandVersion(
         jsonb_build_object(
           'id', e.id,
           'reference_code', e.reference_code,
+          'business_id', e.business_id,
           'version', $2::integer,
           'title', e.title,
           'description', e.description,
           'category', e.category,
+          'category_details', e.category_details,
           'status', e.status,
           'currency_code', e.currency_code,
           'estimated_total', e.estimated_total,
@@ -1374,6 +1463,13 @@ export async function createErrand(req, res) {
 
     const input = validateErrandInput(req.body);
 
+    if (input.category === "business_support") {
+      fail(
+        403,
+        "Business Errands can only be created from an authorised business account.",
+      );
+    }
+
     validateDateOrdering(input);
 
     await client.query("BEGIN");
@@ -1395,6 +1491,7 @@ export async function createErrand(req, res) {
           category,
           status,
           currency_code,
+          category_details,
           estimated_total,
           max_erander_offers,
           offers_enabled,
@@ -1406,8 +1503,8 @@ export async function createErrand(req, res) {
           current_version
         )
         VALUES (
-          $1, $2, $3, $4, 'open', $5, $6, $7, TRUE,
-          $8, $9, $10, $11::jsonb, $12, 1
+          $1, $2, $3, $4, 'open', $5, $6::jsonb, $7, $8, TRUE,
+          $9, $10, $11, $12::jsonb, $13, 1
         )
         RETURNING *
       `,
@@ -1417,6 +1514,7 @@ export async function createErrand(req, res) {
         input.description ?? null,
         input.category,
         input.currency_code,
+        JSON.stringify(input.category_details ?? {}),
         input.estimated_total ?? null,
         input.max_erander_offers ?? 20,
         input.scheduled_for ?? null,
@@ -1477,6 +1575,196 @@ export async function createErrand(req, res) {
 
 
 // =========================================================
+// BUSINESS ERRANDS
+// =========================================================
+
+export async function createBusinessErrand(req, res) {
+  const pool = getDatabasePool();
+  const client = await pool.connect();
+
+  try {
+    const userId = req.user?.id;
+    const business = req.business;
+
+    if (!userId || !business?.business_id) {
+      fail(401, "Please sign in to your business account.");
+    }
+
+    if (!canCreateBusinessErrands(business)) {
+      fail(403, "Your business membership does not have permission to create errands.");
+    }
+
+    if (business.verification_status !== "verified") {
+      fail(403, "Your business must be verified before it can create Business Errands.");
+    }
+
+    const input = validateErrandInput(req.body);
+
+    if (input.category !== "business_support") {
+      fail(400, "Business accounts can create Business Errands only through this endpoint.");
+    }
+
+    validateDateOrdering(input);
+    await client.query("BEGIN");
+
+    const profileResult = await client.query(
+      `SELECT id, account_status, addresses
+         FROM public.profiles
+        WHERE id = $1
+        LIMIT 1
+        FOR UPDATE`,
+      [userId],
+    );
+    const profile = profileResult.rows[0];
+
+    if (!profile || profile.account_status !== "active") {
+      fail(403, "Your personal profile must be active to create a Business Errand.");
+    }
+
+    profile.addresses = parseJsonArray(profile.addresses);
+    const destination = await resolveDestination(client, profile, input.destination);
+
+    const insertResult = await client.query(
+      `INSERT INTO public.erands (
+         requested_by,
+         business_id,
+         title,
+         description,
+         category,
+         status,
+         currency_code,
+         category_details,
+         estimated_total,
+         max_erander_offers,
+         offers_enabled,
+         scheduled_for,
+         expires_at,
+         customer_notes,
+         location_snapshot,
+         location_address_id,
+         current_version
+       ) VALUES (
+         $1, $2, $3, $4, 'business_support', 'open', $5, $6::jsonb,
+         $7, $8, TRUE, $9, $10, $11, $12::jsonb, $13, 1
+       )
+       RETURNING *`,
+      [
+        userId,
+        business.business_id,
+        input.title,
+        input.description ?? null,
+        input.currency_code,
+        JSON.stringify(input.category_details ?? {}),
+        input.estimated_total ?? null,
+        input.max_erander_offers ?? 20,
+        input.scheduled_for ?? null,
+        input.expires_at ?? null,
+        input.customer_notes ?? null,
+        JSON.stringify(destination.locationSnapshot),
+        destination.locationAddressId,
+      ],
+    );
+
+    const errand = insertResult.rows[0];
+    await insertErrandItems(client, errand.id, input.items ?? [], 1);
+    await saveErrandVersion(client, errand.id, userId, 1, "created");
+
+    const completeErrand = await getErrandWithItems(client, errand.id, userId);
+    if (!completeErrand) {
+      fail(500, "The Business Errand was created but could not be retrieved.");
+    }
+
+    await client.query("COMMIT");
+    return res.status(201).json({
+      success: true,
+      message: "Your Business Errand has been created successfully.",
+      data: { errand: completeErrand },
+    });
+  } catch (error) {
+    try {
+      await client.query("ROLLBACK");
+    } catch (rollbackError) {
+      console.error("Failed to roll back Business Errand creation:", rollbackError);
+    }
+    return sendError(res, error);
+  } finally {
+    client.release();
+  }
+}
+
+export async function listBusinessErrands(req, res) {
+  const businessId = req.business?.business_id;
+  if (!businessId) {
+    return res.status(401).json({ success: false, message: "Please sign in to your business account." });
+  }
+
+  const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+  const requestedLimit = Number.parseInt(req.query.limit, 10) || 20;
+  const limit = Math.min(MAX_PAGE_SIZE, Math.max(1, requestedLimit));
+  const offset = (page - 1) * limit;
+  const pool = getDatabasePool();
+
+  try {
+    const [countResult, result] = await Promise.all([
+      pool.query(
+        `SELECT COUNT(*)::integer AS total
+           FROM public.erands
+          WHERE business_id = $1
+            AND deleted_at IS NULL`,
+        [businessId],
+      ),
+      pool.query(
+        `SELECT
+           e.*,
+           COALESCE(
+             (
+               SELECT jsonb_agg(to_jsonb(i) ORDER BY i.sort_order, i.created_at)
+                 FROM public.erand_items i
+                WHERE i.erand_id = e.id
+                  AND i.is_current = TRUE
+             ),
+             '[]'::jsonb
+           ) AS items,
+           jsonb_build_object(
+             'id', creator.id,
+             'display_name', COALESCE(
+               NULLIF(BTRIM(creator.display_name), ''),
+               NULLIF(BTRIM(CONCAT_WS(' ', creator.first_name, creator.last_name)), '')
+             ),
+             'first_name', creator.first_name,
+             'last_name', creator.last_name,
+             'avatar_url', creator.avatar_url
+           ) AS created_by_user
+         FROM public.erands e
+         JOIN public.profiles creator ON creator.id = e.requested_by
+        WHERE e.business_id = $1
+          AND e.deleted_at IS NULL
+        ORDER BY e.created_at DESC
+        LIMIT $2 OFFSET $3`,
+        [businessId, limit, offset],
+      ),
+    ]);
+
+    const total = countResult.rows[0]?.total ?? 0;
+    return res.status(200).json({
+      success: true,
+      data: {
+        errands: result.rows,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
+      },
+    });
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+
+// =========================================================
 // LIST CUSTOMER ERRANDS
 // =========================================================
 
@@ -1521,6 +1809,27 @@ const result = await client.query(
   `
     SELECT
       e.*,
+						
+						      -- The accepted offer contains the customer's approved agreement amount.
+      CASE
+        WHEN e.accepted_offer_id IS NOT NULL THEN (
+          SELECT jsonb_build_object(
+            'id', o.id,
+            'proposed_item_total', o.proposed_item_total,
+            'proposed_service_fee', o.proposed_service_fee,
+            'proposed_delivery_fee', o.proposed_delivery_fee,
+            'proposed_other_fees', o.proposed_other_fees,
+            'proposed_total', o.proposed_total,
+            'currency_code', o.currency_code
+          )
+          FROM public.erand_offers AS o
+          WHERE o.id = e.accepted_offer_id
+            AND o.erand_id = e.id
+            AND o.status = 'accepted'
+          LIMIT 1
+        )
+        ELSE NULL
+      END AS accepted_offer,
 
       -- Total number of offers submitted for this errand.
       -- Historical offers are preserved and included in this count.
@@ -1683,6 +1992,17 @@ export async function updateMyErand(req, res) {
       );
     }
 
+    // Category-specific fields belong to their category. Clear the previous
+    // category's details when a customer changes the category without
+    // submitting a replacement details object.
+    if (
+      input.category !== undefined &&
+      input.category !== currentErrand.category &&
+      input.category_details === undefined
+    ) {
+      input.category_details = {};
+    }
+
     // Transaction currency is immutable after errand creation.
     if (
       input.currency_code !== undefined &&
@@ -1725,9 +2045,9 @@ export async function updateMyErand(req, res) {
     const updates = [];
     const values = [];
 
-    const addUpdate = (column, value) => {
+    const addUpdate = (column, value, cast = "") => {
       values.push(value);
-      updates.push(`${column} = $${values.length}`);
+      updates.push(`${column} = $${values.length}${cast}`);
     };
 
     const editableFields = [
@@ -1745,6 +2065,14 @@ export async function updateMyErand(req, res) {
       if (input[inputField] !== undefined) {
         addUpdate(column, input[inputField]);
       }
+    }
+
+    if (input.category_details !== undefined) {
+      addUpdate(
+        "category_details",
+        JSON.stringify(input.category_details),
+        "::jsonb",
+      );
     }
 
     if (input.destination !== undefined) {
@@ -1805,18 +2133,8 @@ export async function updateMyErand(req, res) {
       "updated",
     );
 
-    /*
-     * TODO: Notification system.
-     *
-     * Notify every user in proposalSubmitters that:
-     *
-     * - The customer has updated the errand.
-     * - A new errand version is available.
-     * - They should review the updated errand.
-     * - Their existing proposal has been preserved.
-     *
-     * Do not automatically delete, withdraw, or modify their proposals.
-     */
+    // Existing offers are preserved. Notify each proposer that a new version
+    // is available for review after the errand update commits.
 
     const updatedErrand = await getErrandWithItems(
       client,
@@ -1825,6 +2143,20 @@ export async function updateMyErand(req, res) {
     );
 
     await client.query("COMMIT");
+
+    for (const proposerId of proposalSubmitters) {
+      notifyUser({
+        recipientId: proposerId,
+        type: "errand_updated",
+        title: "An errand you offered on was updated",
+        body: "The customer updated the errand details. Your existing offer has been preserved; review the latest version before proceeding.",
+        actionUrl: "/dashboard/my-offers",
+        entityType: "erand",
+        entityId: errandId,
+        data: { version: newVersion },
+        dedupeKey: `errand_updated:${errandId}:${newVersion}:${proposerId}`,
+      }).catch((error) => console.error("Errand update notification failed:", error?.message));
+    }
 
     return res.status(200).json({
       success: true,
@@ -2039,21 +2371,23 @@ export async function deleteMyErand(req, res) {
       );
     }
 
-    /*
-     * TODO: Notification system.
-     *
-     * Notify every user in proposalSubmitters that:
-     *
-     * - The customer has deleted the errand.
-     * - The errand is no longer available.
-     * - Their proposal has been preserved in ERANDER's records.
-     * - They may withdraw/delete their proposal if they wish.
-     *
-     * Do not physically delete their proposals.
-     * Do not physically delete the errand or its items.
-     */
+    // Historical offer records remain intact; offer submitters are notified
+    // immediately after this soft-delete transaction commits.
 
     await client.query("COMMIT");
+
+    for (const proposerId of proposalSubmitters) {
+      notifyUser({
+        recipientId: proposerId,
+        type: "errand_cancelled",
+        title: "An errand you offered on was cancelled",
+        body: "The customer deleted this errand. Your offer is no longer active, and no further action is required.",
+        actionUrl: "/dashboard/my-offers",
+        entityType: "erand",
+        entityId: errandId,
+        dedupeKey: `errand_cancelled:${errandId}:${proposerId}`,
+      }).catch((error) => console.error("Errand cancellation notification failed:", error?.message));
+    }
 
     return res.status(200).json({
       success: true,

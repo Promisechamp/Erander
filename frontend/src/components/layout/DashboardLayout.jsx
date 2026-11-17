@@ -7,7 +7,6 @@ Outlet,
 import { toast } from "sonner";
 
 import {
-Bell,
 LayoutDashboard,
 ClipboardList,
 ShoppingCart,
@@ -26,6 +25,7 @@ Heart,
 } from "lucide-react";
 
 import { useAuth } from "@/contexts/AuthContext";
+import NotificationBell from "@/components/notifications/NotificationBell";
 
 const navigationItems = [
 {
@@ -278,16 +278,7 @@ className="h-10 w-auto object-contain"
         </div>
 
         <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-          <button
-            type="button"
-            aria-label="Notifications"
-            onClick={() =>
-              toast.info("Notifications will be available soon.")
-            }
-            className="relative rounded-xl border border-slate-200 p-2.5 text-slate-600 transition hover:bg-slate-50"
-          >
-            <Bell size={19} />
-          </button>
+          <NotificationBell />
 
           <div className="relative">
             <button

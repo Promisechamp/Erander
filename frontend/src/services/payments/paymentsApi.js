@@ -233,3 +233,41 @@ const paymentsApi = {
 };
 
 export default paymentsApi;
+/**
+ * Retrieve the customer-safe security-deposit status for the assigned
+ * erander on an errand. The API intentionally returns status only; it never
+ * exposes the erander's wallet balance or reserved amount.
+ */
+export async function getErrandSecurityDepositStatus(erandId) {
+  if (!erandId || typeof erandId !== "string" || !erandId.trim()) {
+    throw new Error("A valid errand ID is required.");
+  }
+
+  const result = await apiRequest(
+    `/payments/erands/${encodeURIComponent(erandId)}/security-deposit-status`,
+    { method: "GET" },
+  );
+
+  if (!result?.success) {
+    throw new Error(
+      getErrorMessage(
+        result,
+        "Unable to retrieve the security-deposit status.",
+      ),
+    );
+  }
+
+  const status = result?.data?.status;
+  const allowedStatuses = [
+    "not_secured",
+    "processing",
+    "secured",
+    "unsuccessful",
+  ];
+
+  if (!allowedStatuses.includes(status)) {
+    throw new Error("The server returned an invalid security-deposit status.");
+  }
+
+  return { status };
+}

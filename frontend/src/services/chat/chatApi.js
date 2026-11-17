@@ -52,7 +52,7 @@ export function unarchiveChat(chatId) {
 }
 
 export function hideChat(chatId) {
-  return apiRequest(`/chats/${encodeURIComponent(chatId)}/hide`, { method: "POST", body: {} });
+  return apiRequest(`/chats/${encodeURIComponent(chatId)}`, { method: "DELETE", body: {} });
 }
 
 export function updateErrandChatPreference(errandId, allowEranderInitiatedChat) {

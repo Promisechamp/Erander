@@ -185,8 +185,10 @@ async function apiRequestOnce(path, options, { allowCsrfRetry }) {
     headers["x-csrf-token"] = csrfToken;
   }
 
+  const { notifyUnauthenticated: _notifyUnauthenticated, ...fetchOptions } = options;
+
   const response = await safeFetch(getApiUrl(path), {
-    ...options,
+    ...fetchOptions,
     method,
     body,
     credentials: "include",
@@ -200,7 +202,7 @@ async function apiRequestOnce(path, options, { allowCsrfRetry }) {
     return apiRequestOnce(path, options, { allowCsrfRetry: false });
   }
 
-  if (isUnauthorized(response) && unauthenticatedHandler) {
+  if (isUnauthorized(response) && options.notifyUnauthenticated !== false && unauthenticatedHandler) {
     try {
       unauthenticatedHandler();
     } catch {
@@ -238,6 +240,8 @@ async function apiRequestOnce(path, options, { allowCsrfRetry }) {
     );
 
     error.status = response.status;
+    error.data = result?.data ?? null;
+    error.responseData = result;
 
     throw error;
   }

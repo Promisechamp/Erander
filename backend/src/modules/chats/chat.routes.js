@@ -26,6 +26,7 @@ router.post("/:chatId/reopen", requireCsrf, reopenChat);
 router.post("/:chatId/archive", requireCsrf, archiveChat);
 router.post("/:chatId/unarchive", requireCsrf, unarchiveChat);
 router.post("/:chatId/hide", requireCsrf, hideChat);
+router.delete("/:chatId", requireCsrf, hideChat);
 
 const adminRouter = Router();
 adminRouter.use(requireAdminAuth);

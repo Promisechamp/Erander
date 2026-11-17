@@ -2,6 +2,9 @@ import { Router } from "express";
 
 import authRoutes from "../modules/auth/auth.routes.js";
 import adminAuthRoutes from "../modules/admin/auth/adminAuth.routes.js";
+import businessAuthRoutes from "../modules/business/auth/businessAuth.routes.js";
+import businessErrandRoutes from "../modules/business/errands/businessErrands.routes.js";
+import businessFavoriteErranderRoutes from "../modules/business/favorites/businessFavoriteErranders.routes.js";
 import adminDashboardRoutes from "../modules/admin/dashboard/adminDashboard.routes.js";
 import adminRecordsRoutes from "../modules/admin/records/adminRecords.routes.js";
 import adminActionsRoutes from "../modules/admin/actions/adminActions.routes.js";
@@ -15,6 +18,8 @@ import paymentRoutes from "../modules/payments/payment.routes.js";
 import walletRoutes, { walletAdminRoutes } from "../modules/wallets/wallet.routes.js";
 import supportRoutes from "../modules/support/support.routes.js";
 import favoriteErranderRoutes from "../modules/favorites/favoriteErranders.routes.js";
+import notificationRoutes from "../modules/notifications/notification.routes.js";
+import adminNotificationRoutes from "../modules/notifications/notification.admin.routes.js";
 
 
 const router = Router();
@@ -25,8 +30,13 @@ router.get("/", (req, res) => {
 
 router.use("/auth", authRoutes);
 router.use("/auth/admin", adminAuthRoutes);
+router.use("/auth/business", businessAuthRoutes);
+router.use("/business/erands", businessErrandRoutes);
+router.use("/business/favorites/erranders", businessFavoriteErranderRoutes);
 router.use("/profiles", profileRoutes);
 router.use("/favorites/erranders", favoriteErranderRoutes);
+router.use("/notifications", notificationRoutes);
+router.use("/admin/notifications", adminNotificationRoutes);
 router.use("/erands/available", availableErandRoutes);
 router.use("/erands", erandRoutes);
 router.use("/chats", chatRoutes);

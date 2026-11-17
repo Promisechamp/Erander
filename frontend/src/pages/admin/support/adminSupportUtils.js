@@ -132,6 +132,8 @@ export function getUserName(user) {
   return fullName || user.email || "Unknown user";
 }
 
+
+
 export function getInitials(name = "") {
   return (
     name

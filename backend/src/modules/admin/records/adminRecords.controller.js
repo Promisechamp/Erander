@@ -12,8 +12,8 @@ const DATASETS = {
   users: {
     profiles: {
       table: "profiles", permission: "users:read",
-      columns: ["id", "first_name", "last_name", "other_names", "display_name", "avatar_url", "phone", "account_status", "user_roles", "preferred_currency", "created_at", "updated_at"],
-      search: ["id", "display_name", "first_name", "last_name", "other_names", "phone"], statusColumn: "account_status",
+      columns: ["id", "first_name", "last_name", "other_names", "display_name", "avatar_url", "email", "phone", "account_status", "user_roles", "preferred_currency", "created_at", "updated_at"],
+      search: ["id", "display_name", "first_name", "last_name", "other_names", "email", "phone"], statusColumn: "account_status",
     },
   },
   errands: {

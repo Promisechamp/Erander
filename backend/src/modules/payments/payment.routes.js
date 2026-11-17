@@ -9,7 +9,14 @@ import {
 import {
   requestFundRelease,
   getFundReleaseRequest,
+  getErrandSecurityDepositStatus,
 } from "./fundRelease.controller.js";
+import {
+  getSecurityDepositFundingSummary,
+  initializeSecurityDepositFunding,
+  verifySecurityDepositFunding,
+  cancelSecurityDepositFunding,
+} from "./securityDepositFunding.controller.js";
 
 import { requireAuth } from "../../middleware/requireAuth.js";
 import { requireCsrf } from "../../middleware/csrfProtection.js";
@@ -48,6 +55,34 @@ router.post(
 // --------------------------------------------------
 // FUND RELEASE
 // --------------------------------------------------
+// Customer-safe security-deposit status for the assigned erander.
+// Only the errand customer may retrieve this status.
+router.get(
+  "/erands/:erandId/security-deposit-status",
+  getErrandSecurityDepositStatus,
+);
+
+// Erander security-deposit funding: wallet-only, direct Paystack, or split.
+router.get(
+  "/erands/:erandId/security-deposit-funding",
+  getSecurityDepositFundingSummary,
+);
+router.post(
+  "/erands/:erandId/security-deposit-funding/initialize",
+  requireCsrf,
+  initializeSecurityDepositFunding,
+);
+router.post(
+  "/erands/:erandId/security-deposit-funding/verify",
+  requireCsrf,
+  verifySecurityDepositFunding,
+);
+router.post(
+  "/erands/:erandId/security-deposit-funding/cancel",
+  requireCsrf,
+  cancelSecurityDepositFunding,
+);
+
 
 // Submit a fund-release request.
 //

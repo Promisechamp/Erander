@@ -16,6 +16,7 @@ import {
 	UserRound,
 	Phone,
 	BriefcaseBusiness,
+	Building2,
 	ShieldCheck,
 	Sparkles,
 } from "lucide-react";
@@ -552,6 +553,7 @@ REGISTER PAGE
 ---------------------------------------------- */
 
 export function RegisterPage() {
+	const navigate = useNavigate();
 	const [form, setForm] = useState({
 		firstName: "",
 		lastName: "",
@@ -616,7 +618,7 @@ export function RegisterPage() {
 			<FormHeading
 				eyebrow="Join the marketplace"
 				title="Create your account"
-				description="One account to get things done or start helping others."
+				description="Choose whether you want to post errands, perform errands, or do both with one personal account."
 			/>
 
 			<form onSubmit={handleSubmit} className="space-y-4">
@@ -674,10 +676,10 @@ export function RegisterPage() {
 
 				<fieldset>
 					<legend className="mb-3 text-sm font-bold" style={{ color: AUTH.navy }}>
-						How would you like to use ERANDER?
+						Choose your personal account access
 					</legend>
 
-					<div className="grid grid-cols-2 gap-3">
+					<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
 						{[
 							{
 								value: "customer",
@@ -690,6 +692,12 @@ export function RegisterPage() {
 								title: "I want to help",
 								description: "Apply to perform errands",
 								icon: BriefcaseBusiness,
+							},
+							{
+								value: "both",
+								title: "Both customer and erander",
+								description: "Post errands and perform errands with one account",
+								icon: Check,
 							},
 						].map(({ value, title, description, icon: Icon }) => {
 							const selected = form.role === value;
@@ -711,32 +719,28 @@ export function RegisterPage() {
 										onChange={updateField}
 										className="sr-only"
 									/>
-
 									<div className="flex items-center justify-between gap-2">
 										<Icon size={21} style={{ color: AUTH.navy }} aria-hidden="true" />
-
-										{selected && (
-											<CheckCircle2
-												size={18}
-												style={{ color: "#159B65" }}
-												aria-hidden="true"
-											/>
-										)}
+										{selected && <CheckCircle2 size={18} style={{ color: "#159B65" }} aria-hidden="true" />}
 									</div>
-
-									<span
-										className="mt-4 text-sm font-extrabold"
-										style={{ color: AUTH.navy }}
-									>
-										{title}
-									</span>
-
-									<span className="mt-1 text-xs leading-5" style={{ color: AUTH.muted }}>
-										{description}
-									</span>
+									<span className="mt-4 text-sm font-extrabold" style={{ color: AUTH.navy }}>{title}</span>
+									<span className="mt-1 text-xs leading-5" style={{ color: AUTH.muted }}>{description}</span>
 								</label>
 							);
 						})}
+						<button
+							type="button"
+							onClick={() => navigate("/business/register")}
+							className="relative flex cursor-pointer flex-col rounded-2xl border p-4 text-left transition hover:border-emerald-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+							style={{ borderColor: AUTH.border, backgroundColor: AUTH.white, outlineColor: AUTH.green }}
+						>
+							<div className="flex items-center justify-between gap-2">
+								<Building2 size={21} style={{ color: AUTH.navy }} aria-hidden="true" />
+								<ArrowRight size={17} style={{ color: AUTH.green }} aria-hidden="true" />
+							</div>
+							<span className="mt-4 text-sm font-extrabold" style={{ color: AUTH.navy }}>Register a business</span>
+							<span className="mt-1 text-xs leading-5" style={{ color: AUTH.muted }}>Create a separate business identity and register its owner.</span>
+						</button>
 					</div>
 				</fieldset>
 

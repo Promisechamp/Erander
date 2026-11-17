@@ -77,3 +77,27 @@ export function deleteErrand(errandId) {
 }
 
 
+
+export function startErrandExecution(errandId) {
+  if (!errandId) throw new Error("An errand ID is required.");
+  return apiRequest(`/erands/${encodeURIComponent(errandId)}/start`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export function submitErrandCompletion(errandId) {
+  if (!errandId) throw new Error("An errand ID is required.");
+  return apiRequest(`/erands/${encodeURIComponent(errandId)}/submit-completion`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export function confirmErrandCompletion(errandId) {
+  if (!errandId) throw new Error("An errand ID is required.");
+  return apiRequest(`/erands/${encodeURIComponent(errandId)}/confirm-completion`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}

@@ -1,4 +1,6 @@
 import { getDatabasePool } from "../../config/database.js";
+import { notifyUsers } from "../notifications/notification.service.js";
+import { getErrandSecurityDepositVerification } from "./securityDepositStatus.service.js";
 
 function sendError(res, statusCode, message, code) {
     return res.status(statusCode).json({
@@ -67,8 +69,10 @@ export async function requestFundRelease(req, res) {
             `
                 SELECT
                     id,
+                    requested_by,
                     status,
-                    assigned_erander_id
+                    assigned_erander_id,
+                    accepted_offer_id
                 FROM public.erands
                 WHERE id = $1
                 FOR UPDATE
@@ -154,6 +158,29 @@ export async function requestFundRelease(req, res) {
             });
         }
 
+        // A confirmed 100% security-deposit reservation for this exact errand
+        // and assigned erander is mandatory before a release request can exist.
+        // This verification runs while the errand row is locked, in the same
+        // transaction as request creation.
+        const securityDeposit = await getErrandSecurityDepositVerification(
+            client,
+            errandResult.rows[0],
+        );
+
+        if (!securityDeposit.secured) {
+            await client.query("ROLLBACK");
+            transactionStarted = false;
+
+            return sendError(
+                res,
+                409,
+                securityDeposit.status === "processing"
+                    ? "Your security-deposit reservation is still processing. You can request fund release once it is confirmed."
+                    : "A confirmed 100% security-deposit reservation is required before you can request fund release.",
+                "SECURITY_DEPOSIT_REQUIRED",
+            );
+        }
+
         const insertResult = await client.query(
             `
                 INSERT INTO public.erand_fund_release_requests (
@@ -195,6 +222,30 @@ export async function requestFundRelease(req, res) {
 
         await client.query("COMMIT");
         transactionStarted = false;
+
+        notifyUsers([errand.requested_by], {
+            type: "fund_release_requested",
+            title: "Your erander requested execution funds",
+            body: "The assigned erander has requested release of the funded execution budget. The request is awaiting admin review.",
+            actionUrl: "/dashboard/erands",
+            entityType: "erand",
+            entityId: erandId,
+            data: { requestId: request.id },
+            dedupeKey: `fund_release_requested:${request.id}`,
+        }).catch((error) => console.error("Fund-release request notification failed:", error?.message));
+        getDatabasePool().query(
+            `SELECT DISTINCT profile_id FROM public.admin_role_assignments
+              WHERE assignment_status = 'active' AND role_code IN ('super_admin', 'finance_admin')`,
+        ).then((admins) => notifyUsers(admins.rows.map((row) => row.profile_id), {
+            type: "admin_fund_release_request",
+            title: "New errand fund-release request",
+            body: `An erander requested execution-fund release for ${errandId}. Review funding, security deposit and agreement before taking action.`,
+            actionUrl: "/admin/fund-releases",
+            entityType: "erand",
+            entityId: erandId,
+            data: { requestId: request.id },
+            dedupeKey: `admin_fund_release_request:${request.id}`,
+        })).catch((error) => console.error("Admin fund-release notification failed:", error?.message));
 
         return res.status(201).json({
             success: true,
@@ -388,6 +439,82 @@ export async function getFundReleaseRequest(req, res) {
             500,
             "Unable to load the fund-release request. Please try again.",
             "FUND_RELEASE_REQUEST_LOOKUP_FAILED",
+        );
+    } finally {
+        client?.release();
+    }
+}
+
+/**
+ * Returns the customer-safe security-deposit status for the assigned erander
+ * on this errand. No amount, wallet balance, account ID or transaction data
+ * is exposed.
+ */
+export async function getErrandSecurityDepositStatus(req, res) {
+    const erandId = req.params.erandId;
+    const customerId = req.user?.id;
+
+    if (!erandId || !customerId) {
+        return sendError(
+            res,
+            400,
+            "An errand ID and authenticated customer are required.",
+            "INVALID_REQUEST",
+        );
+    }
+
+    let client;
+
+    try {
+        const pool = getDatabasePool();
+        client = await pool.connect();
+
+        const errandResult = await client.query(
+            `
+                SELECT
+                    id,
+                    requested_by,
+                    assigned_erander_id,
+                    accepted_offer_id
+                FROM public.erands
+                WHERE id = $1::uuid
+                  AND requested_by = $2::uuid
+                LIMIT 1
+            `,
+            [erandId, customerId],
+        );
+
+        if (errandResult.rowCount === 0) {
+            return sendError(
+                res,
+                404,
+                "Errand not found.",
+                "ERRAND_NOT_FOUND",
+            );
+        }
+
+        const verification = await getErrandSecurityDepositVerification(
+            client,
+            errandResult.rows[0],
+        );
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                status: verification.status,
+            },
+        });
+    } catch (error) {
+        console.error(
+            "Unable to verify errand security-deposit status:",
+            error,
+        );
+
+        return sendError(
+            res,
+            503,
+            "Security-deposit status is temporarily unavailable. Please try again.",
+            "SECURITY_DEPOSIT_STATUS_UNAVAILABLE",
         );
     } finally {
         client?.release();
